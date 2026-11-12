@@ -1,0 +1,6 @@
+# Optional THIRD file for accessing this bot through the Docker engine host.
+# This profile exposes port 4201 on the engine host; the bot requires its token.
+services:
+  implementer-bot:
+    ports:
+      - "${IMPLEMENTER_BIND_ADDRESS:-127.0.0.1}:${IMPLEMENTER_HOST_PORT:-4201}:4201"

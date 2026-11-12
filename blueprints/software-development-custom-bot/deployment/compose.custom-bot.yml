@@ -1,0 +1,39 @@
+# Reference/compatibility override: the root docker-compose.yml now provisions
+# this service and registration by default. An extra -f is not required.
+# If using this override, pass the root docker-compose.yml as the FIRST file.
+# All relative env_file paths are consequently relative to the repository root.
+services:
+  server:
+    environment:
+      # Match the registered endpoint exactly so native OpenBot forwards the token.
+      MANAGED_AGENT_AG_UI_URL: ${MANAGED_AGENT_AG_UI_URL:?Set MANAGED_AGENT_AG_UI_URL in .env}
+      MANAGED_AGENT_TOKEN: ${MANAGED_AGENT_TOKEN:?Set MANAGED_AGENT_TOKEN in .env}
+    depends_on:
+      implementer-bot:
+        condition: service_healthy
+
+  implementer-bot:
+    image: openbot-blueprint-implementer:ab9855c19848
+    build:
+      context: https://github.com/CopilotKit/OpenBot.git#ab9855c19848378c90a806426130d86699cc798c
+      dockerfile: agent-langgraph/Dockerfile
+    env_file: ${IMPLEMENTER_ENV_FILE:-.env.implementer}
+    environment:
+      PORT: "4201"
+      # Native trust: server -> bot and bot -> granted tool callback.
+      MANAGED_AGENT_TOKEN: ${MANAGED_AGENT_TOKEN:?Set MANAGED_AGENT_TOKEN in .env}
+      AGENT_TOOL_TOKEN: ${AGENT_TOOL_TOKEN:?Set AGENT_TOOL_TOKEN in .env}
+      OPENBOT_TOOL_URL: http://server:3001/api/agent-tools/call
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    depends_on:
+      blueprint-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: [CMD, bun, -e, "const r = await fetch('http://127.0.0.1:4201/health'); const h = await r.json(); process.exit(r.ok && h.status === 'ok' ? 0 : 1)"]
+      interval: 10s
+      timeout: 5s
+      start_period: 20s
+      retries: 12
+    restart: unless-stopped
+    networks: [agents]

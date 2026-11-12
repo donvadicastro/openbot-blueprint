@@ -1,0 +1,70 @@
+# Experimental overlay; the OpenBot activity adapter is not connected yet.
+# Use alongside the root compose file after setting the workflow secrets.
+services:
+  workflow-postgres:
+    image: postgres:16.10
+    environment:
+      POSTGRES_USER: temporal
+      POSTGRES_PASSWORD: ${WORKFLOW_POSTGRES_PASSWORD:?Set WORKFLOW_POSTGRES_PASSWORD}
+    volumes:
+      - workflow-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U temporal"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    networks: [workflow]
+    restart: unless-stopped
+
+  temporal:
+    image: temporalio/auto-setup:1.29.7
+    depends_on:
+      workflow-postgres:
+        condition: service_healthy
+    environment:
+      DB: postgres12
+      DB_PORT: "5432"
+      POSTGRES_USER: temporal
+      POSTGRES_PWD: ${WORKFLOW_POSTGRES_PASSWORD:?Set WORKFLOW_POSTGRES_PASSWORD}
+      SQL_PASSWORD: ${WORKFLOW_POSTGRES_PASSWORD:?Set WORKFLOW_POSTGRES_PASSWORD}
+      POSTGRES_SEEDS: workflow-postgres
+      BIND_ON_IP: 0.0.0.0
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "7233"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+      start_period: 30s
+    networks: [workflow]
+    restart: unless-stopped
+
+  workflow-worker:
+    build:
+      context: ./deploy/workflow
+      dockerfile: Dockerfile
+    depends_on:
+      temporal:
+        condition: service_healthy
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_NAMESPACE: default
+      TEMPORAL_TASK_QUEUE: openbot-business
+      OPENBOT_WORKFLOW_ACTIVITY_URL: http://server:3001
+      WORKFLOW_ACTIVITY_TOKEN: ${WORKFLOW_ACTIVITY_TOKEN:?Set WORKFLOW_ACTIVITY_TOKEN}
+      WORKFLOW_ENGINE_TOKEN: ${WORKFLOW_ENGINE_TOKEN:?Set WORKFLOW_ENGINE_TOKEN}
+    networks: [workflow]
+    restart: unless-stopped
+
+  server:
+    environment:
+      WORKFLOW_ENGINE_URL: http://workflow-worker:4310
+      WORKFLOW_ENGINE_TOKEN: ${WORKFLOW_ENGINE_TOKEN:?Set WORKFLOW_ENGINE_TOKEN}
+      WORKFLOW_ACTIVITY_TOKEN: ${WORKFLOW_ACTIVITY_TOKEN:?Set WORKFLOW_ACTIVITY_TOKEN}
+    networks: [data, agents, workflow]
+
+volumes:
+  workflow-postgres-data:
+
+networks:
+  workflow:
+    internal: true

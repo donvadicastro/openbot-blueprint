@@ -1,0 +1,699 @@
+[
+  {
+    "id": "source-code",
+    "description": "source code",
+    "owner": "engineer",
+    "producers": [
+      "engineer"
+    ],
+    "consumers": [
+      "engineer",
+      "qa",
+      "release"
+    ],
+    "schema": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "revision": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "additionalProperties": false
+    },
+    "states": [
+      "draft",
+      "verified"
+    ],
+    "relationships": []
+  },
+  {
+    "id": "change-brief",
+    "description": "change brief",
+    "owner": "pm",
+    "producers": [
+      "pm"
+    ],
+    "consumers": [
+      "engineer",
+      "pm",
+      "qa"
+    ],
+    "schema": {
+      "type": "object",
+      "properties": {
+        "scope": {
+          "type": "string",
+          "minLength": 1
+        },
+        "scenarios": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "expected"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "expected": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "required": [
+        "scope",
+        "scenarios"
+      ]
+    },
+    "states": [
+      "draft",
+      "verified"
+    ],
+    "relationships": []
+  },
+  {
+    "id": "candidate",
+    "description": "candidate",
+    "owner": "engineer",
+    "producers": [
+      "engineer"
+    ],
+    "consumers": [
+      "engineer",
+      "qa",
+      "release"
+    ],
+    "schema": {
+      "type": "object",
+      "properties": {
+        "revision": {
+          "type": "string",
+          "minLength": 1
+        },
+        "briefRevision": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sourceRevision": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "revision",
+        "briefRevision",
+        "sourceRevision"
+      ],
+      "additionalProperties": false
+    },
+    "states": [
+      "draft",
+      "verified"
+    ],
+    "relationships": []
+  },
+  {
+    "id": "test-plan",
+    "description": "test plan",
+    "owner": "qa",
+    "producers": [
+      "qa"
+    ],
+    "consumers": [
+      "qa"
+    ],
+    "schema": {
+      "type": "object",
+      "properties": {
+        "candidateRevision": {
+          "type": "string"
+        },
+        "scenarios": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "steps",
+              "expected"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "steps": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string"
+                }
+              },
+              "expected": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "briefRevision": {
+          "type": "string",
+          "minLength": 1
+        },
+        "environment": {
+          "type": "string",
+          "minLength": 1
+        },
+        "prerequisites": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "required": [
+        "candidateRevision",
+        "briefRevision",
+        "environment",
+        "prerequisites",
+        "scenarios"
+      ],
+      "additionalProperties": false
+    },
+    "states": [
+      "draft",
+      "verified"
+    ],
+    "relationships": []
+  },
+  {
+    "id": "qa-evidence",
+    "description": "qa evidence",
+    "owner": "qa",
+    "producers": [
+      "qa"
+    ],
+    "consumers": [
+      "qa",
+      "release"
+    ],
+    "schema": {
+      "type": "object",
+      "properties": {
+        "candidateRevision": {
+          "type": "string",
+          "minLength": 1
+        },
+        "briefRevision": {
+          "type": "string",
+          "minLength": 1
+        },
+        "planRevision": {
+          "type": "string",
+          "minLength": 1
+        },
+        "environment": {
+          "type": "string",
+          "minLength": 1
+        },
+        "verdict": {
+          "type": "string",
+          "enum": [
+            "passed",
+            "failed",
+            "pending"
+          ]
+        },
+        "results": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "passed",
+                  "failed",
+                  "blocked",
+                  "not-run"
+                ]
+              },
+              "observed": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              },
+              "evidence": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            },
+            "required": [
+              "id",
+              "status"
+            ],
+            "additionalProperties": false,
+            "oneOf": [
+              {
+                "properties": {
+                  "status": {
+                    "const": "passed"
+                  }
+                },
+                "required": [
+                  "status",
+                  "observed"
+                ]
+              },
+              {
+                "properties": {
+                  "status": {
+                    "const": "failed"
+                  }
+                },
+                "required": [
+                  "status",
+                  "observed"
+                ]
+              },
+              {
+                "properties": {
+                  "status": {
+                    "const": "blocked"
+                  }
+                },
+                "required": [
+                  "status",
+                  "reason"
+                ]
+              },
+              {
+                "properties": {
+                  "status": {
+                    "const": "not-run"
+                  }
+                },
+                "required": [
+                  "status",
+                  "reason"
+                ]
+              }
+            ]
+          }
+        },
+        "passPercentage": {
+          "type": "number",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "candidateRevision",
+        "briefRevision",
+        "planRevision",
+        "environment",
+        "verdict",
+        "results",
+        "passPercentage"
+      ],
+      "additionalProperties": false
+    },
+    "states": [
+      "draft",
+      "verified"
+    ],
+    "relationships": []
+  },
+  {
+    "id": "release-runbook",
+    "description": "release runbook",
+    "owner": "release",
+    "producers": [
+      "release"
+    ],
+    "consumers": [
+      "release"
+    ],
+    "schema": {
+      "type": "object",
+      "properties": {
+        "procedure": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "procedure"
+      ]
+    },
+    "states": [
+      "draft",
+      "verified"
+    ],
+    "relationships": []
+  },
+  {
+    "id": "release-target",
+    "description": "release target",
+    "owner": "release",
+    "producers": [
+      "release"
+    ],
+    "consumers": [
+      "release"
+    ],
+    "schema": {
+      "type": "object",
+      "properties": {
+        "url": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "url"
+      ]
+    },
+    "states": [
+      "draft",
+      "verified"
+    ],
+    "relationships": []
+  },
+  {
+    "id": "deployment-evidence",
+    "description": "deployment evidence",
+    "owner": "release",
+    "producers": [
+      "release"
+    ],
+    "consumers": [
+      "release"
+    ],
+    "schema": {
+      "type": "object",
+      "properties": {
+        "candidateRevision": {
+          "type": "string"
+        },
+        "target": {
+          "type": "string"
+        },
+        "receipt": {
+          "type": "string"
+        },
+        "verified": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "candidateRevision",
+        "target",
+        "receipt",
+        "verified"
+      ]
+    },
+    "states": [
+      "draft",
+      "verified"
+    ],
+    "relationships": []
+  },
+  {
+    "id": "request-brief",
+    "description": "request brief",
+    "owner": "team-lead",
+    "producers": [
+      "team-lead"
+    ],
+    "consumers": [
+      "pm",
+      "team-lead"
+    ],
+    "schema": {
+      "type": "object",
+      "properties": {
+        "objective": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "objective"
+      ]
+    },
+    "states": [
+      "draft",
+      "verified"
+    ],
+    "relationships": []
+  },
+  {
+    "id": "ci-cd",
+    "description": "ci cd",
+    "owner": "engineer",
+    "producers": [
+      "engineer"
+    ],
+    "consumers": [
+      "engineer"
+    ],
+    "schema": {
+      "type": "object",
+      "properties": {
+        "reference": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "reference"
+      ]
+    },
+    "states": [
+      "draft",
+      "verified"
+    ],
+    "relationships": []
+  },
+  {
+    "id": "test-environment",
+    "description": "test environment",
+    "owner": "qa",
+    "producers": [
+      "qa"
+    ],
+    "consumers": [
+      "qa"
+    ],
+    "schema": {
+      "type": "object",
+      "properties": {
+        "reference": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "reference"
+      ]
+    },
+    "states": [
+      "draft",
+      "verified"
+    ],
+    "relationships": []
+  },
+  {
+    "id": "live-environment",
+    "description": "live environment",
+    "owner": "release",
+    "producers": [
+      "release"
+    ],
+    "consumers": [
+      "release"
+    ],
+    "schema": {
+      "type": "object",
+      "properties": {
+        "reference": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "reference"
+      ]
+    },
+    "states": [
+      "draft",
+      "verified"
+    ],
+    "relationships": []
+  },
+  {
+    "id": "documentation",
+    "description": "documentation",
+    "owner": "pm",
+    "producers": [
+      "pm"
+    ],
+    "consumers": [
+      "pm"
+    ],
+    "schema": {
+      "type": "object",
+      "properties": {
+        "reference": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "reference"
+      ]
+    },
+    "states": [
+      "draft",
+      "verified"
+    ],
+    "relationships": []
+  },
+  {
+    "id": "requirements",
+    "description": "requirements",
+    "owner": "pm",
+    "producers": [
+      "pm"
+    ],
+    "consumers": [
+      "pm"
+    ],
+    "schema": {
+      "type": "object",
+      "properties": {
+        "reference": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "reference"
+      ]
+    },
+    "states": [
+      "draft",
+      "verified"
+    ],
+    "relationships": []
+  },
+  {
+    "id": "product-direction",
+    "description": "Goals and prioritization decisions.",
+    "owner": "pm",
+    "producers": [
+      "pm"
+    ],
+    "consumers": [
+      "pm"
+    ],
+    "schema": {
+      "type": "object",
+      "properties": {
+        "reference": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "reference"
+      ],
+      "additionalProperties": false
+    },
+    "states": [
+      "draft",
+      "verified"
+    ],
+    "relationships": []
+  },
+  {
+    "id": "engineering-practices",
+    "description": "Project engineering conventions.",
+    "owner": "engineer",
+    "producers": [
+      "engineer"
+    ],
+    "consumers": [
+      "engineer"
+    ],
+    "schema": {
+      "type": "object",
+      "properties": {
+        "reference": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "reference"
+      ],
+      "additionalProperties": false
+    },
+    "states": [
+      "draft",
+      "verified"
+    ],
+    "relationships": []
+  },
+  {
+    "id": "metrics",
+    "description": "Product and delivery measurements.",
+    "owner": "pm",
+    "producers": [
+      "pm"
+    ],
+    "consumers": [
+      "pm"
+    ],
+    "schema": {
+      "type": "object",
+      "properties": {
+        "reference": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "reference"
+      ],
+      "additionalProperties": false
+    },
+    "states": [
+      "draft",
+      "verified"
+    ],
+    "relationships": []
+  }
+]

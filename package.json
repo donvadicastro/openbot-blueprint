@@ -1,0 +1,25 @@
+{
+  "name": "openbot-blueprint",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Versioned, extensible multi-agent project blueprints",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "bin": {
+    "blueprint": "dist/bin/blueprint.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "blueprint": "npm run build --silent && node dist/bin/blueprint.js",
+    "validate": "npm run build --silent && node dist/bin/blueprint.js validate",
+    "test": "npm run build --silent && node --test test/*.test.js",
+    "check": "npm run build && node dist/bin/blueprint.js validate && node --test test/*.test.js"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "typescript": "^7.0.2"
+  }
+}

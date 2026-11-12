@@ -1,0 +1,22 @@
+# Development files
+test/
+docs/
+.git/
+.gitignore
+README.md
+*.md
+*.txt
+*.log
+
+# Node.js
+node_modules/
+npm-cache/
+
+# Build artifacts
+dist/
+build/
+*.js.map
+
+# IDE
+.idea/
+.vscode/

@@ -1,0 +1,17 @@
+**
+!package.json
+!package-lock.json
+!tsconfig.json
+!src/
+!src/**
+!bin/
+!bin/**
+!schemas/
+!schemas/**
+!deploy/
+!deploy/openbot/
+!deploy/openbot/.env.example
+!deploy/openbot/team-intake/
+!deploy/openbot/team-intake/**
+!deploy/openbot/product/
+!deploy/openbot/product/**

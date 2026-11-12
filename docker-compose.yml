@@ -1,0 +1,236 @@
+name: ${COMPOSE_PROJECT_NAME:-openbot-blueprint}
+
+x-openbot-build: &openbot-build
+  context: .
+  dockerfile: deploy/openbot/server.Dockerfile
+  additional_contexts:
+    openbot-source: https://github.com/CopilotKit/OpenBot.git#ab9855c19848378c90a806426130d86699cc798c
+
+x-server-image: &server-image
+  image: ${SERVER_IMAGE:-openbot-blueprint-server:ab9855c19848}
+  build: *openbot-build
+
+x-postgres-environment: &postgres-environment
+  POSTGRES_USER: ${POSTGRES_USER:-openbot}
+  POSTGRES_DB: ${POSTGRES_DB:-openbot}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-openbot}
+
+x-database-url: &database-url ${DATABASE_URL:-postgres://openbot:openbot@postgres:5432/openbot}
+
+services:
+  # No platform services start until credential validation and tenant export pass.
+  blueprint-init:
+    build: .
+    image: openbot-blueprint-tooling:local
+    env_file: ${OPENBOT_ENV_FILE:-.env}
+    environment:
+      <<: *postgres-environment
+      DATABASE_URL: *database-url
+      BLUEPRINT_INCLUDE_OPTIONAL: ${BLUEPRINT_INCLUDE_OPTIONAL:-true}
+      MANAGED_AGENT_AG_UI_URL: ${MANAGED_AGENT_AG_UI_URL:-http://implementer-bot:4201/ag-ui}
+      MANAGED_AGENT_TOKEN: ${MANAGED_AGENT_TOKEN:?Set MANAGED_AGENT_TOKEN in .env}
+    volumes:
+      - type: bind
+        source: ${BLUEPRINT_DIR:-./blueprints/software-development-custom-bot}
+        target: /definition
+        read_only: true
+        bind:
+          create_host_path: false
+      - tenant-package:/tenant
+    restart: "no"
+    network_mode: none
+
+  postgres:
+    image: pgvector/pgvector:pg17
+    environment: *postgres-environment
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    depends_on:
+      blueprint-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+    networks: [data]
+
+  migrate:
+    <<: *server-image
+    command: [bun, scripts/migrate.ts]
+    environment:
+      DATABASE_URL: *database-url
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    networks: [data]
+
+  server:
+    <<: *server-image
+    labels:
+      io.openbot.blueprint: ${BLUEPRINT_ID:-software-development-custom-bot}
+      io.openbot.blueprint-version: ${BLUEPRINT_VERSION:-legacy}
+    env_file: ${OPENBOT_ENV_FILE:-.env}
+    environment:
+      NODE_ENV: production
+      PORT: "3001"
+      SERVER_PORT: "3001"
+      WORKSPACE_PROVIDER_URL: ${WORKSPACE_PROVIDER_URL:-http://host.docker.internal:4511}
+      WORKSPACE_PROVIDER_TOKEN: ${WORKSPACE_PROVIDER_TOKEN:-}
+      WORKSPACE_PROVIDER_INSTALLATION_ID: ${WORKSPACE_PROVIDER_INSTALLATION_ID:-${COMPOSE_PROJECT_NAME:-openbot-blueprint}}
+      TENANT_PACKAGE_DIR: /tenant/current
+      COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME:-openbot-blueprint}
+      BLUEPRINT_ENVIRONMENT_ID: ${BLUEPRINT_ENVIRONMENT_ID:-local}
+      BLUEPRINT_APP_URL: http://localhost:${APP_PORT:-3010}
+      DATABASE_URL: *database-url
+      AGENT_COMPUTER_URL: http://agent-computer:4100
+      COMPUTER_SUPERVISOR_URL: http://supervisor:4300
+      COMPUTER_TOKEN: ${COMPUTER_TOKEN:?Set COMPUTER_TOKEN in .env}
+      SUPERVISOR_TOKEN: ${SUPERVISOR_TOKEN:?Set SUPERVISOR_TOKEN in .env}
+      AGENT_TOOL_TOKEN: ${AGENT_TOOL_TOKEN:?Set AGENT_TOOL_TOKEN in .env}
+      WORKER_SHARED_SECRET: ${WORKER_SHARED_SECRET:?Set WORKER_SHARED_SECRET in .env}
+      KEY_ENCRYPTION_KEY: ${KEY_ENCRYPTION_KEY:?Set KEY_ENCRYPTION_KEY in .env}
+      # Match the registered endpoint so native OpenBot forwards its service token.
+      MANAGED_AGENT_AG_UI_URL: ${MANAGED_AGENT_AG_UI_URL:-http://implementer-bot:4201/ag-ui}
+      MANAGED_AGENT_TOKEN: ${MANAGED_AGENT_TOKEN:?Set MANAGED_AGENT_TOKEN in .env}
+      AGENT_ENDPOINT_ALLOWED_HOSTS: ${AGENT_ENDPOINT_ALLOWED_HOSTS:-implementer-bot:4201}
+    volumes:
+      - tenant-package:/tenant:ro
+      - ${PROJECTS_HOST_DIR:-./projects}:/projects:ro
+    ports:
+      - "127.0.0.1:${APP_PORT:-3010}:3001"
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    depends_on:
+      blueprint-init:
+        condition: service_completed_successfully
+      migrate:
+        condition: service_completed_successfully
+      supervisor:
+        condition: service_healthy
+      agent-computer:
+        condition: service_healthy
+      implementer-bot:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, bun, -e, "const r = await fetch('http://127.0.0.1:3001/health'); process.exit(r.ok ? 0 : 1)"]
+      interval: 10s
+      timeout: 5s
+      start_period: 60s
+      retries: 12
+    restart: unless-stopped
+    networks: [data, agents]
+
+  # Provisioned by a plain docker compose up; no profile or extra -f required.
+  implementer-bot:
+    image: openbot-blueprint-implementer:ab9855c19848
+    build:
+      context: https://github.com/CopilotKit/OpenBot.git#ab9855c19848378c90a806426130d86699cc798c
+      dockerfile: agent-langgraph/Dockerfile
+    env_file: ${IMPLEMENTER_ENV_FILE:-.env.implementer}
+    environment:
+      PORT: "4201"
+      MANAGED_AGENT_TOKEN: ${MANAGED_AGENT_TOKEN:?Set MANAGED_AGENT_TOKEN in .env}
+      AGENT_TOOL_TOKEN: ${AGENT_TOOL_TOKEN:?Set AGENT_TOOL_TOKEN in .env}
+      OPENBOT_TOOL_URL: http://server:3001/api/agent-tools/call
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    depends_on:
+      blueprint-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: [CMD, bun, -e, "const r = await fetch('http://127.0.0.1:4201/health'); const h = await r.json(); process.exit(r.ok && h.status === 'ok' ? 0 : 1)"]
+      interval: 10s
+      timeout: 5s
+      start_period: 20s
+      retries: 12
+    restart: unless-stopped
+    networks: [agents]
+
+  worker:
+    <<: *server-image
+    command: [bun, ../worker/src/index.ts]
+    environment:
+      DATABASE_URL: *database-url
+      SERVER_INTERNAL_URL: http://server:3001
+      WORKER_SHARED_SECRET: ${WORKER_SHARED_SECRET:?Set WORKER_SHARED_SECRET in .env}
+    depends_on:
+      server:
+        condition: service_healthy
+    restart: unless-stopped
+    networks: [data]
+
+  agent-computer:
+    image: ${COMPUTER_IMAGE:-openbot-blueprint-computer:ab9855c19848}
+    build:
+      context: https://github.com/CopilotKit/OpenBot.git#ab9855c19848378c90a806426130d86699cc798c
+      dockerfile: agent-computer/Dockerfile
+    environment:
+      COMPUTER_TOKEN: ${COMPUTER_TOKEN:?Set COMPUTER_TOKEN in .env}
+      COMPUTER_BROWSER_MODE: ${COMPUTER_BROWSER_MODE:-headed}
+      COMPUTER_SEPARATE_WORKSPACES: "on"
+    volumes:
+      - agent-workspace:/workspace
+      - ${PROJECTS_HOST_DIR:-./projects}:/projects:ro
+      - agent-profiles:/profiles
+    depends_on:
+      blueprint-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: [CMD, bun, -e, "const r = await fetch('http://127.0.0.1:4100/health'); process.exit(r.ok ? 0 : 1)"]
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
+      retries: 12
+    stop_grace_period: 30s
+    restart: unless-stopped
+    networks: [agents]
+
+  supervisor:
+    image: ${SUPERVISOR_IMAGE:-openbot-blueprint-supervisor:ab9855c19848}
+    build:
+      context: https://github.com/CopilotKit/OpenBot.git#ab9855c19848378c90a806426130d86699cc798c
+      dockerfile: supervisor/Dockerfile
+    environment:
+      PORT: "4300"
+      SUPERVISOR_TOKEN: ${SUPERVISOR_TOKEN:?Set SUPERVISOR_TOKEN in .env}
+      COMPUTER_TOKEN: ${COMPUTER_TOKEN:?Set COMPUTER_TOKEN in .env}
+      COMPUTER_BROWSER_MODE: ${COMPUTER_BROWSER_MODE:-headed}
+      COMPUTER_IMAGE: ${COMPUTER_IMAGE:-openbot-blueprint-computer:ab9855c19848}
+      COMPUTER_NAMESPACE: ${COMPUTER_NAMESPACE:-${COMPOSE_PROJECT_NAME:-openbot-blueprint}}
+      COMPUTER_NETWORK: ${COMPOSE_PROJECT_NAME:-openbot-blueprint}_agents
+      COMPUTER_MEMORY_BYTES: ${COMPUTER_MEMORY_BYTES:-4294967296}
+      COMPUTER_RUNTIME: ${COMPUTER_RUNTIME:-}
+    volumes:
+      - type: bind
+        source: ${ENGINE_SOCKET:-/var/run/docker.sock}
+        target: /var/run/docker.sock
+        read_only: true
+        bind:
+          create_host_path: false
+    depends_on:
+      agent-computer:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, bun, -e, "const r = await fetch('http://127.0.0.1:4300/health'); const h = await r.json(); process.exit(r.ok && h.docker ? 0 : 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    security_opt:
+      - label=disable
+    restart: unless-stopped
+    networks: [agents]
+
+volumes:
+  tenant-package:
+  postgres-data:
+  agent-workspace:
+  agent-profiles:
+
+networks:
+  data:
+    internal: true
+  agents:
+    name: ${COMPOSE_PROJECT_NAME:-openbot-blueprint}_agents

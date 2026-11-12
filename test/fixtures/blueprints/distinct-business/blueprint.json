@@ -1,0 +1,413 @@
+{
+  "$schema": "../../schemas/blueprint.schema.json",
+  "schemaVersion": "1.0",
+  "id": "service-operations",
+  "name": "Service Operations",
+  "version": "1.0.1",
+  "projectType": "service-operations",
+  "description": "A team for coordinating a service request.",
+  "entrypoint": "team-lead",
+  "intake": {
+    "welcomeMessage": "I coordinate this service team.",
+    "handoffTo": "lead"
+  },
+  "inputs": [
+    "Service request and applicable constraints"
+  ],
+  "outputs": [
+    "Service response and supporting evidence"
+  ],
+  "agents": [
+    {
+      "id": "team-lead",
+      "name": "Team Lead",
+      "role": "Service coordination",
+      "purpose": "Understand requests and coordinate the service team.",
+      "tier": "core",
+      "prompt": "prompts/service-team-lead.md",
+      "tools": [
+        "artifact-write"
+      ],
+      "resources": [
+        "requirements",
+        "artifacts"
+      ],
+      "environment": "coordination",
+      "deliverables": [
+        "Request brief and decision record",
+        "User-facing status and delivery summary"
+      ],
+      "runtime": {
+        "kind": "builtin"
+      }
+    },
+    {
+      "id": "lead",
+      "name": "Service Coordinator",
+      "role": "Service specialist",
+      "purpose": "Resolve service requests and document outcomes.",
+      "tier": "core",
+      "prompt": "prompts/service-coordinator.md",
+      "tools": [
+        "repository-read",
+        "artifact-write"
+      ],
+      "resources": [
+        "source",
+        "requirements",
+        "artifacts"
+      ],
+      "environment": "coordination",
+      "deliverables": [
+        "Intake brief and accepted requirements baseline",
+        "Delivery plan and final evidence summary"
+      ],
+      "runtime": {
+        "kind": "builtin"
+      },
+      "readiness": [
+        {
+          "id": "setup-confirmation",
+          "stage": "intake",
+          "instruction": "Record the user’s explicit confirmation of the setup summary before the Team Lead sends new work."
+        }
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "team-lead-to-lead",
+      "from": "team-lead",
+      "to": "lead",
+      "trigger": "The service request needs coordination.",
+      "input": [
+        "Service request"
+      ],
+      "output": [
+        "Service outcome"
+      ],
+      "onFailure": "Report the blocker to the requester."
+    },
+    {
+      "id": "lead-to-team-lead",
+      "from": "lead",
+      "to": "team-lead",
+      "trigger": "The service request needs coordination.",
+      "input": [
+        "Service request"
+      ],
+      "output": [
+        "Service outcome"
+      ],
+      "onFailure": "Report the blocker to the requester."
+    }
+  ],
+  "tools": [
+    {
+      "id": "repository-read",
+      "description": "Inspect repository files, history and diffs.",
+      "transport": "mcp",
+      "endpointEnv": "REPOSITORY_MCP_URL",
+      "credentialEnv": "REPOSITORY_TOKEN",
+      "capabilities": [
+        "files.read",
+        "git.diff",
+        "git.log"
+      ],
+      "access": "read",
+      "setup": "Register a repository MCP server and grant read access only to the assigned repository."
+    },
+    {
+      "id": "workspace-edit",
+      "description": "Edit files in the assigned isolated workspace.",
+      "transport": "native",
+      "capabilities": [
+        "files.write",
+        "git.patch"
+      ],
+      "access": "write",
+      "setup": "Runner provides a per-task writable checkout; do not grant host-wide filesystem access."
+    },
+    {
+      "id": "test-runner",
+      "description": "Run project checks in an isolated execution environment.",
+      "transport": "native",
+      "capabilities": [
+        "process.execute"
+      ],
+      "access": "execute",
+      "setup": "Runner provisions a container with the project toolchain; review/QA get independent disposable checkouts."
+    },
+    {
+      "id": "artifact-write",
+      "description": "Store task evidence and handoff artifacts.",
+      "transport": "native",
+      "capabilities": [
+        "artifacts.write"
+      ],
+      "access": "write",
+      "setup": "Provide a request-scoped artifact store; prevent cross-request access."
+    }
+  ],
+  "resources": [
+    {
+      "id": "source",
+      "description": "Assigned repository and revision.",
+      "kind": "repository",
+      "location": "${PROJECT_REPOSITORY}",
+      "access": "read"
+    },
+    {
+      "id": "requirements",
+      "description": "Task brief, stakeholder context and existing requirements.",
+      "kind": "documentation",
+      "location": "${PROJECT_BRIEF_URI}",
+      "access": "read"
+    },
+    {
+      "id": "artifacts",
+      "description": "Request-scoped requirements, patches, reviews and verification evidence.",
+      "kind": "artifact-store",
+      "location": "${ARTIFACT_STORE_URI}",
+      "access": "write"
+    }
+  ],
+  "environments": [
+    {
+      "id": "coordination",
+      "isolation": "none",
+      "workspace": "Not applicable; use granted remote read tools and artifact services.",
+      "network": "disabled",
+      "allowedHosts": [],
+      "cpu": 0,
+      "memoryMb": 0,
+      "setup": "No shell or computer required. Network restrictions describe local compute, not brokered tool calls."
+    },
+    {
+      "id": "development",
+      "isolation": "container",
+      "workspace": "/workspace/${REQUEST_ID}/${AGENT_ID}",
+      "network": "allowlist",
+      "allowedHosts": [
+        "${APPROVED_PACKAGE_HOST}"
+      ],
+      "cpu": 2,
+      "memoryMb": 4096,
+      "setup": "Provision one container and branch/worktree per task. Resolve approved hosts explicitly; do not mount credentials or the Docker socket."
+    },
+    {
+      "id": "review",
+      "isolation": "container",
+      "workspace": "/workspace/${REQUEST_ID}/${AGENT_ID}",
+      "network": "disabled",
+      "allowedHosts": [],
+      "cpu": 2,
+      "memoryMb": 4096,
+      "setup": "Provision independent checkouts of the candidate revision with preinstalled dependencies; source patch editing is not granted."
+    }
+  ],
+  "workflow": [
+    {
+      "id": "intake",
+      "owner": "lead",
+      "dependsOn": [],
+      "instructions": "Clarify the request and coordinate a service response.",
+      "gates": [
+        "intake-accepted"
+      ],
+      "onFailure": "Report the blocker and retain the request."
+    }
+  ],
+  "qualityGates": [
+    {
+      "id": "intake-accepted",
+      "owner": "lead",
+      "criteria": [
+        "The request and its constraints are clear."
+      ],
+      "evidence": [
+        "Service request"
+      ],
+      "onFailure": "Request the missing information."
+    }
+  ],
+  "extensionPolicy": {
+    "strategy": "additive",
+    "rules": [
+      "Core roles are a recommended baseline, not an exhaustive roster.",
+      "Add domain specialists with explicit activation triggers, prompts, handoff contracts and grants.",
+      "Lead records why a specialist was activated and integrates its findings into the relevant quality gate.",
+      "Parallelize independent assignments only; changes to a revision invalidate dependent review evidence.",
+      "Version blueprint changes; preserve the independent implementation, review and verification responsibilities."
+    ]
+  },
+  "executionPolicy": {
+    "maxConcurrentAgents": 3,
+    "maxHandoffs": 30,
+    "maxReworkCycles": 2,
+    "timeoutMinutes": 120,
+    "approvalRequiredFor": [
+      "Publishing or deployment outside existing request authorization",
+      "Destructive changes outside the task scope",
+      "New external spending or privileged access"
+    ],
+    "onBudgetExceeded": "Stop new delegation, retain completed evidence and report the remaining blockers to the user."
+  },
+  "extensions": {},
+  "deployment": {
+    "runtime": "openbot",
+    "environmentFile": "deployment/.env.example"
+  },
+  "business": {
+    "teamLeadRole": "team-lead",
+    "roles": [
+      {
+        "id": "team-lead",
+        "agentId": "team-lead",
+        "responsibility": "Clarify service requests.",
+        "actions": [],
+        "startupChecks": [],
+        "viewId": "service-view"
+      },
+      {
+        "id": "coordinator",
+        "agentId": "lead",
+        "responsibility": "Coordinate service delivery.",
+        "actions": [
+          "clarify"
+        ],
+        "startupChecks": [],
+        "viewId": "coordinator-view"
+      }
+    ],
+    "artifactTypes": [
+      {
+        "id": "service-request",
+        "description": "Service request",
+        "owner": "coordinator",
+        "producers": [
+          "coordinator"
+        ],
+        "consumers": [
+          "team-lead",
+          "coordinator"
+        ],
+        "schema": {
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string",
+              "enum": [
+                "ready"
+              ]
+            }
+          },
+          "required": [
+            "status"
+          ],
+          "additionalProperties": false
+        },
+        "states": [
+          "draft",
+          "confirmed"
+        ],
+        "relationships": []
+      }
+    ],
+    "initialization": {
+      "requiredArtifacts": [],
+      "recommendedArtifacts": [],
+      "workspace": {
+        "kind": "none"
+      }
+    },
+    "actions": [
+      {
+        "id": "clarify",
+        "role": "coordinator",
+        "inputTypes": [],
+        "outputTypes": [
+          "service-request"
+        ],
+        "prerequisites": [],
+        "results": [
+          {
+            "status": "succeeded",
+            "requiredOutputTypes": [
+              "service-request"
+            ],
+            "requiredEvidence": [
+              "confirmed"
+            ]
+          }
+        ],
+        "retry": {
+          "maxAttempts": 1,
+          "delaySeconds": 0
+        }
+      }
+    ],
+    "workflows": [
+      {
+        "id": "service-request",
+        "description": "Handle a service request.",
+        "outcomes": [
+          "Handle service request"
+        ],
+        "startPhase": "clarify",
+        "terminalPhases": [
+          "done"
+        ],
+        "phases": [
+          {
+            "id": "clarify",
+            "action": "clarify"
+          },
+          {
+            "id": "done",
+            "terminal": true
+          }
+        ],
+        "transitions": [
+          {
+            "from": "clarify",
+            "to": "done",
+            "when": {
+              "status": "succeeded"
+            }
+          }
+        ]
+      }
+    ],
+    "views": [
+      {
+        "id": "service-view",
+        "role": "team-lead",
+        "recordTypes": [
+          "service-request"
+        ],
+        "summaryFields": [
+          "status"
+        ],
+        "detailFields": [
+          "status"
+        ],
+        "renderer": "record-card"
+      },
+      {
+        "id": "coordinator-view",
+        "role": "coordinator",
+        "recordTypes": [
+          "service-request"
+        ],
+        "summaryFields": [
+          "status"
+        ],
+        "detailFields": [
+          "status"
+        ],
+        "renderer": "record-card"
+      }
+    ]
+  }
+}

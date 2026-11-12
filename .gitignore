@@ -1,0 +1,17 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+!.env.implementer.example
+coverage/
+.DS_Store
+/projects/
+build/
+*.log
+*.tmp
+*.swp
+Thumbs.db
+.vscode/
+.idea/
+.openbot/

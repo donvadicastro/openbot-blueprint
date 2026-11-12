@@ -1,0 +1,5 @@
+{
+  "repository": "https://github.com/CopilotKit/OpenBot",
+  "revision": "ab9855c19848378c90a806426130d86699cc798c",
+  "description": "Native server, worker, supervisor and agent-computer source used by docker-compose.yml."
+}

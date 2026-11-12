@@ -1,0 +1,1336 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:openbot-blueprint:schema:1.0",
+  "title": "Project Blueprint",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "minLength": 1
+    },
+    "schemaVersion": {
+      "type": "string",
+      "const": "1.0"
+    },
+    "id": {
+      "$ref": "#/$defs/id"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "projectType": {
+      "$ref": "#/$defs/id"
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1
+    },
+    "entrypoint": {
+      "$ref": "#/$defs/id"
+    },
+    "intake": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "welcomeMessage"
+      ],
+      "properties": {
+        "welcomeMessage": {
+          "type": "string",
+          "minLength": 1
+        },
+        "handoffTo": {
+          "$ref": "#/$defs/id"
+        },
+        "discoveryBy": {
+          "$ref": "#/$defs/id"
+        },
+        "form": {
+          "type": "boolean"
+        }
+      }
+    },
+    "inputs": {
+      "$ref": "#/$defs/strings"
+    },
+    "outputs": {
+      "$ref": "#/$defs/strings"
+    },
+    "agents": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/agent"
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "connections": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/connection"
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "tools": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/tool"
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "resources": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/resource"
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "environments": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/environment"
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "workflow": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/step"
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "qualityGates": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/gate"
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "extensionPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "strategy": {
+          "type": "string",
+          "const": "additive"
+        },
+        "rules": {
+          "$ref": "#/$defs/strings"
+        }
+      },
+      "required": [
+        "strategy",
+        "rules"
+      ]
+    },
+    "executionPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "maxConcurrentAgents": {
+          "type": "number",
+          "minimum": 1
+        },
+        "maxHandoffs": {
+          "type": "number",
+          "minimum": 1
+        },
+        "maxReworkCycles": {
+          "type": "number",
+          "minimum": 0
+        },
+        "timeoutMinutes": {
+          "type": "number",
+          "minimum": 1
+        },
+        "approvalRequiredFor": {
+          "$ref": "#/$defs/strings"
+        },
+        "onBudgetExceeded": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "maxConcurrentAgents",
+        "maxHandoffs",
+        "maxReworkCycles",
+        "timeoutMinutes",
+        "approvalRequiredFor",
+        "onBudgetExceeded"
+      ]
+    },
+    "extensions": {
+      "type": "object"
+    },
+    "deployment": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "runtime": {
+          "type": "string",
+          "const": "openbot"
+        },
+        "environmentFile": {
+          "type": "string",
+          "minLength": 1
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "runtime",
+        "environmentFile"
+      ]
+    },
+    "business": {
+      "$ref": "#/$defs/business"
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "id",
+    "name",
+    "version",
+    "projectType",
+    "description",
+    "entrypoint",
+    "inputs",
+    "outputs",
+    "agents",
+    "connections",
+    "tools",
+    "resources",
+    "environments",
+    "workflow",
+    "qualityGates",
+    "extensionPolicy",
+    "executionPolicy"
+  ],
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$"
+    },
+    "text": {
+      "type": "string",
+      "minLength": 1
+    },
+    "strings": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "agent": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "role": {
+          "type": "string",
+          "minLength": 1
+        },
+        "purpose": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tier": {
+          "enum": [
+            "core",
+            "optional"
+          ],
+          "type": "string"
+        },
+        "activateWhen": {
+          "type": "string",
+          "minLength": 1
+        },
+        "prompt": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tools": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "minItems": 0,
+          "uniqueItems": true
+        },
+        "resources": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "minItems": 0,
+          "uniqueItems": true
+        },
+        "environment": {
+          "$ref": "#/$defs/id"
+        },
+        "deliverables": {
+          "$ref": "#/$defs/strings"
+        },
+        "readiness": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/id"
+              },
+              "stage": {
+                "type": "string",
+                "enum": [
+                  "intake",
+                  "assignment"
+                ]
+              },
+              "instruction": {
+                "type": "string",
+                "minLength": 1
+              },
+              "question": {
+                "type": "string",
+                "minLength": 1
+              },
+              "format": {
+                "type": "string",
+                "enum": [
+                  "folder",
+                  "project-source"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "stage",
+              "instruction"
+            ]
+          }
+        },
+        "runtime": {
+          "$ref": "#/$defs/runtime"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "role",
+        "purpose",
+        "tier",
+        "prompt",
+        "tools",
+        "resources",
+        "environment",
+        "deliverables"
+      ]
+    },
+    "connection": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "from": {
+          "$ref": "#/$defs/id"
+        },
+        "to": {
+          "$ref": "#/$defs/id"
+        },
+        "trigger": {
+          "type": "string",
+          "minLength": 1
+        },
+        "input": {
+          "$ref": "#/$defs/strings"
+        },
+        "output": {
+          "$ref": "#/$defs/strings"
+        },
+        "onFailure": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "id",
+        "from",
+        "to",
+        "trigger",
+        "input",
+        "output",
+        "onFailure"
+      ]
+    },
+    "tool": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "transport": {
+          "type": "string",
+          "enum": [
+            "mcp",
+            "native",
+            "http"
+          ]
+        },
+        "endpointEnv": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]*$"
+        },
+        "credentialEnv": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]*$"
+        },
+        "capabilities": {
+          "$ref": "#/$defs/strings"
+        },
+        "access": {
+          "type": "string",
+          "enum": [
+            "read",
+            "write",
+            "execute"
+          ]
+        },
+        "setup": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "id",
+        "description",
+        "transport",
+        "capabilities",
+        "access",
+        "setup"
+      ]
+    },
+    "resource": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "repository",
+            "documentation",
+            "artifact-store",
+            "local-file"
+          ]
+        },
+        "location": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "access": {
+          "type": "string",
+          "enum": [
+            "read",
+            "write"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "description",
+        "kind",
+        "access"
+      ]
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "isolation": {
+          "type": "string",
+          "enum": [
+            "none",
+            "container",
+            "vm"
+          ]
+        },
+        "workspace": {
+          "type": "string",
+          "minLength": 1
+        },
+        "network": {
+          "type": "string",
+          "enum": [
+            "disabled",
+            "allowlist"
+          ]
+        },
+        "allowedHosts": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 0,
+          "uniqueItems": true
+        },
+        "cpu": {
+          "type": "number",
+          "minimum": 0
+        },
+        "memoryMb": {
+          "type": "number",
+          "minimum": 0
+        },
+        "setup": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "id",
+        "isolation",
+        "workspace",
+        "network",
+        "allowedHosts",
+        "cpu",
+        "memoryMb",
+        "setup"
+      ]
+    },
+    "step": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "owner": {
+          "$ref": "#/$defs/id"
+        },
+        "dependsOn": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "minItems": 0,
+          "uniqueItems": true
+        },
+        "instructions": {
+          "type": "string",
+          "minLength": 1
+        },
+        "gates": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "minItems": 0,
+          "uniqueItems": true
+        },
+        "onFailure": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "id",
+        "owner",
+        "dependsOn",
+        "instructions",
+        "gates",
+        "onFailure"
+      ]
+    },
+    "gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "owner": {
+          "$ref": "#/$defs/id"
+        },
+        "criteria": {
+          "$ref": "#/$defs/strings"
+        },
+        "evidence": {
+          "$ref": "#/$defs/strings"
+        },
+        "onFailure": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "id",
+        "owner",
+        "criteria",
+        "evidence",
+        "onFailure"
+      ]
+    },
+    "runtime": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "builtin",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "local",
+              "type": "string"
+            },
+            "language": {
+              "type": "string",
+              "enum": [
+                "typescript",
+                "python"
+              ]
+            },
+            "framework": {
+              "type": "string",
+              "enum": [
+                "openai-agents",
+                "langchain",
+                "custom"
+              ]
+            },
+            "entrypoint": {
+              "type": "string",
+              "minLength": 1
+            },
+            "dependencyFile": {
+              "type": "string",
+              "minLength": 1
+            },
+            "exportName": {
+              "type": "string",
+              "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+            },
+            "files": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "uniqueItems": true
+            }
+          },
+          "required": [
+            "kind",
+            "language",
+            "framework",
+            "entrypoint",
+            "dependencyFile",
+            "exportName"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "remote",
+              "type": "string"
+            },
+            "protocol": {
+              "const": "ag-ui",
+              "type": "string"
+            },
+            "endpointEnv": {
+              "type": "string",
+              "pattern": "^[A-Z][A-Z0-9_]*$"
+            }
+          },
+          "required": [
+            "kind",
+            "protocol",
+            "endpointEnv"
+          ]
+        }
+      ]
+    },
+    "businessResultStatus": {
+      "type": "string",
+      "enum": [
+        "succeeded",
+        "needs-input",
+        "blocked",
+        "failed"
+      ]
+    },
+    "businessStartupCheck": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/id"
+            },
+            "description": {
+              "$ref": "#/$defs/text"
+            },
+            "kind": {
+              "type": "string",
+              "const": "artifact-access"
+            },
+            "artifactType": {
+              "$ref": "#/$defs/id"
+            }
+          },
+          "required": [
+            "id",
+            "description",
+            "kind",
+            "artifactType"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/id"
+            },
+            "description": {
+              "$ref": "#/$defs/text"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "workspace-ready",
+                "role-ready"
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "description",
+            "kind"
+          ]
+        }
+      ]
+    },
+    "businessRole": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "agentId": {
+          "$ref": "#/$defs/id"
+        },
+        "responsibility": {
+          "$ref": "#/$defs/text"
+        },
+        "actions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "minItems": 0,
+          "uniqueItems": true
+        },
+        "startupChecks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/businessStartupCheck"
+          },
+          "minItems": 0,
+          "uniqueItems": true
+        },
+        "viewId": {
+          "$ref": "#/$defs/id"
+        },
+        "skills": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/text"
+          },
+          "minItems": 0,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "id",
+        "agentId",
+        "responsibility",
+        "actions",
+        "startupChecks",
+        "viewId"
+      ]
+    },
+    "businessArtifactType": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "description": {
+          "$ref": "#/$defs/text"
+        },
+        "owner": {
+          "$ref": "#/$defs/id"
+        },
+        "producers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "minItems": 0,
+          "uniqueItems": true
+        },
+        "consumers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "minItems": 0,
+          "uniqueItems": true
+        },
+        "schema": {
+          "type": "object"
+        },
+        "states": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/text"
+          },
+          "minItems": 0,
+          "uniqueItems": true
+        },
+        "relationships": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "field": {
+                "$ref": "#/$defs/text"
+              },
+              "targetType": {
+                "$ref": "#/$defs/id"
+              },
+              "many": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "field",
+              "targetType",
+              "many"
+            ]
+          },
+          "minItems": 0,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "id",
+        "description",
+        "owner",
+        "producers",
+        "consumers",
+        "schema",
+        "states",
+        "relationships"
+      ]
+    },
+    "businessAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "role": {
+          "$ref": "#/$defs/id"
+        },
+        "inputTypes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "minItems": 0,
+          "uniqueItems": true
+        },
+        "outputTypes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "minItems": 0,
+          "uniqueItems": true
+        },
+        "prerequisites": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/text"
+          },
+          "minItems": 0,
+          "uniqueItems": true
+        },
+        "results": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "status": {
+                "$ref": "#/$defs/businessResultStatus"
+              },
+              "requiredOutputTypes": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/id"
+                },
+                "minItems": 0,
+                "uniqueItems": true
+              },
+              "requiredEvidence": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/text"
+                },
+                "minItems": 0,
+                "uniqueItems": true
+              }
+            },
+            "required": [
+              "status",
+              "requiredOutputTypes",
+              "requiredEvidence"
+            ]
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "retry": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "maxAttempts": {
+              "type": "number",
+              "minimum": 1
+            },
+            "delaySeconds": {
+              "type": "number",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "maxAttempts",
+            "delaySeconds"
+          ]
+        },
+        "approvalRequired": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "role",
+        "inputTypes",
+        "outputTypes",
+        "prerequisites",
+        "results",
+        "retry"
+      ]
+    },
+    "businessPhase": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/id"
+            },
+            "action": {
+              "$ref": "#/$defs/id"
+            }
+          },
+          "required": [
+            "id",
+            "action"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/id"
+            },
+            "terminal": {
+              "type": "boolean",
+              "const": true
+            }
+          },
+          "required": [
+            "id",
+            "terminal"
+          ]
+        }
+      ]
+    },
+    "businessTransition": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "from": {
+          "$ref": "#/$defs/id"
+        },
+        "to": {
+          "$ref": "#/$defs/id"
+        },
+        "when": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "status": {
+              "$ref": "#/$defs/businessResultStatus"
+            },
+            "decision": {
+              "$ref": "#/$defs/text"
+            },
+            "recordType": {
+              "$ref": "#/$defs/id"
+            },
+            "field": {
+              "$ref": "#/$defs/text"
+            },
+            "equals": {
+              "$ref": "#/$defs/text"
+            }
+          },
+          "required": [
+            "status"
+          ]
+        }
+      },
+      "required": [
+        "from",
+        "to",
+        "when"
+      ]
+    },
+    "businessWorkflow": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "description": {
+          "$ref": "#/$defs/text"
+        },
+        "outcomes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/text"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "startPhase": {
+          "$ref": "#/$defs/id"
+        },
+        "terminalPhases": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "phases": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/businessPhase"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "transitions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/businessTransition"
+          },
+          "minItems": 0,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "id",
+        "description",
+        "outcomes",
+        "startPhase",
+        "terminalPhases",
+        "phases",
+        "transitions"
+      ]
+    },
+    "businessView": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "role": {
+          "$ref": "#/$defs/id"
+        },
+        "recordTypes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "minItems": 0,
+          "uniqueItems": true
+        },
+        "summaryFields": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/text"
+          },
+          "minItems": 0,
+          "uniqueItems": true
+        },
+        "detailFields": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/text"
+          },
+          "minItems": 0,
+          "uniqueItems": true
+        },
+        "renderer": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "id",
+        "role",
+        "recordTypes",
+        "summaryFields",
+        "detailFields",
+        "renderer"
+      ]
+    },
+    "businessWorkspace": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "none"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "vm"
+            },
+            "provider": {
+              "type": "string",
+              "const": "lima"
+            },
+            "image": {
+              "$ref": "#/$defs/text"
+            },
+            "imageDigest": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "cpus": {
+              "type": "number",
+              "minimum": 1
+            },
+            "memoryMb": {
+              "type": "number",
+              "minimum": 1
+            },
+            "diskGb": {
+              "type": "number",
+              "minimum": 1
+            }
+          },
+          "required": [
+            "kind",
+            "provider",
+            "image",
+            "imageDigest",
+            "cpus",
+            "memoryMb",
+            "diskGb"
+          ]
+        }
+      ]
+    },
+    "business": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "teamLeadRole": {
+          "$ref": "#/$defs/id"
+        },
+        "roles": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/businessRole"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "artifactTypes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/businessArtifactType"
+          },
+          "minItems": 0,
+          "uniqueItems": true
+        },
+        "initialization": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "requiredArtifacts": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/id"
+              },
+              "minItems": 0,
+              "uniqueItems": true
+            },
+            "recommendedArtifacts": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/id"
+              },
+              "minItems": 0,
+              "uniqueItems": true
+            },
+            "workspace": {
+              "$ref": "#/$defs/businessWorkspace"
+            }
+          },
+          "required": [
+            "requiredArtifacts",
+            "recommendedArtifacts",
+            "workspace"
+          ]
+        },
+        "actions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/businessAction"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "workflows": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/businessWorkflow"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "views": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/businessView"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "teamLeadRole",
+        "roles",
+        "artifactTypes",
+        "initialization",
+        "actions",
+        "workflows",
+        "views"
+      ]
+    }
+  }
+}
