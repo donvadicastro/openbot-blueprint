@@ -51,6 +51,7 @@ cleanup() {
   result=$?
   if [ "$result" -ne 0 ]; then
     for service in restored-activity restored-worker temporal-restore; do
+      docker inspect --format '{{.Name}} state={{.State.Status}} exit={{.State.ExitCode}} oom={{.State.OOMKilled}} error={{.State.Error}}' "${COMPOSE_PROJECT_NAME}-${service}" 2>&1 || true
       docker logs --tail 80 "${COMPOSE_PROJECT_NAME}-${service}" 2>&1 || true
     done
     compose logs --tail 80 workflow-fixture workflow-worker 2>&1 || true
@@ -181,23 +182,28 @@ until docker exec "${COMPOSE_PROJECT_NAME}-temporal-restore" temporal workflow q
   sleep 1
 done
 echo 'A separate worker replayed the restored workflow and recovered its decision wait.'
-docker exec "${COMPOSE_PROJECT_NAME}-restored-activity" bun -e 'const r=await fetch("http://127.0.0.1:4320/fixture-answer",{method:"POST"}); if(!r.ok) process.exit(1)'
+docker exec "${COMPOSE_PROJECT_NAME}-restored-activity" bun -e 'const r=await fetch("http://127.0.0.1:4320/fixture-answer",{method:"POST",headers:{connection:"close"}}); if(!r.ok) process.exit(1)'
 attempt=0
 while :; do
-  state=$(docker exec "${COMPOSE_PROJECT_NAME}-restored-activity" bun -e 'try { const v=await (await fetch("http://127.0.0.1:4320/fixture-status")).json(); if(v.kind==="choice" && v.turns===2 && v.effects===1) console.log("waiting"); } catch {}' 2>/dev/null || true)
+  state=$(docker exec "${COMPOSE_PROJECT_NAME}-restored-activity" bun -e 'try { const v=await (await fetch("http://127.0.0.1:4320/fixture-status",{headers:{connection:"close"}})).json(); if(v.kind==="choice" && v.turns===2 && v.effects===1) console.log("waiting"); } catch {}' 2>/dev/null || true)
   [ "$state" = waiting ] && break
   attempt=$((attempt+1)); if [ "$attempt" -ge 90 ]; then echo 'Restored product did not reach its next decision.' >&2; docker logs --tail 30 "${COMPOSE_PROJECT_NAME}-restored-activity" >&2; exit 1; fi
   sleep 1
 done
-docker exec "${COMPOSE_PROJECT_NAME}-restored-activity" bun -e 'const r=await fetch("http://127.0.0.1:4320/fixture-answer",{method:"POST"}); if(!r.ok) process.exit(1)'
+docker exec "${COMPOSE_PROJECT_NAME}-restored-activity" bun -e 'const r=await fetch("http://127.0.0.1:4320/fixture-answer",{method:"POST",headers:{connection:"close"}}); if(!r.ok) process.exit(1)'
 attempt=0
 while :; do
-  state=$(docker exec "${COMPOSE_PROJECT_NAME}-restored-activity" bun -e 'try { const v=await (await fetch("http://127.0.0.1:4320/fixture-status")).json(); if(v.state==="Completed" && v.turns===2 && v.effects===1) console.log("complete"); } catch {}' 2>/dev/null || true)
+  state=$(docker exec "${COMPOSE_PROJECT_NAME}-restored-activity" bun -e 'try { const v=await (await fetch("http://127.0.0.1:4320/fixture-status",{headers:{connection:"close"}})).json(); if(v.state==="Completed" && v.turns===2 && v.effects===1) console.log("complete"); } catch {}' 2>/dev/null || true)
   [ "$state" = complete ] && break
   attempt=$((attempt+1)); if [ "$attempt" -ge 90 ]; then echo 'Restored product workflow did not complete.' >&2; docker logs --tail 30 "${COMPOSE_PROJECT_NAME}-restored-activity" >&2; exit 1; fi
   sleep 1
 done
-compose exec -T workflow-fixture bun -e 'const v=await (await fetch("http://127.0.0.1:4320/fixture-status")).json(); if(v.decision!=="Pending" || v.turns!==1 || v.effects!==0) process.exit(1)'
+original_state=$(compose exec -T project-postgres psql -U postgres -d postgres -Atqc "select case when r.state='Running'
+  and exists(select 1 from bp_workflow_decisions d where d.project_id=r.project_id and d.run_id=r.id and d.state='Pending')
+  and (select count(*) from fixture_turns)=1 and (select count(*) from fixture_effects)=0 then 'waiting' else 'invalid' end
+  from bp_workflow_runs r join bp_work_items w on (w.project_id,w.id)=(r.project_id,r.work_item_id)
+  where w.request='Handle a service request.'")
+[ "$original_state" = waiting ] || { echo 'The original workflow did not remain waiting after restore.' >&2; exit 1; }
 echo 'Restored product and Temporal completed the workflow with one fixture effect while the original remained waiting.'
 if [ -n "$restore_provider_url" ]; then
   node -e 'const [port,installationId,projectId]=process.argv.slice(1); const r=await fetch(`http://127.0.0.1:${port}/run`,{method:"POST",headers:{authorization:"Bearer restore-fixture-provider-token-0123456789","content-type":"application/json"},body:JSON.stringify({installationId,projectId,operationKey:"restore-verification",argv:["sh","-c","cat restored-workflow"]})}); const v=await r.json(); if(!r.ok||v.status!=="completed"||v.exitCode!==0||v.stdout!=="x") throw Error("Restored VM workflow effect was not exactly once.");' "$vm_port" "$restore_install" "$restore_project"

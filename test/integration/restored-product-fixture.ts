@@ -35,6 +35,20 @@ const handler = createPhaseExecutor(module, async turn => {
   return { replyText: JSON.stringify({ status: 'succeeded', outputs: [{ type: 'service-request', revisionId: output.revisionId }], evidence: { confirmed: output.revisionId } }) };
 });
 const app = new Hono();
+app.use('*', async (context, next) => {
+  const path = new URL(context.req.url).pathname;
+  try {
+    await next();
+    console.log('Restored fixture request completed:', context.req.method, path, context.res.status);
+  } catch (error) {
+    console.error('Restored fixture request failed:', context.req.method, path, error);
+    throw error;
+  }
+});
+app.onError((error, context) => {
+  console.error('Restored fixture handler error:', context.req.method, new URL(context.req.url).pathname, error);
+  return context.json({ error: 'Restored fixture request failed.' }, 500);
+});
 app.route('/internal/workflow-activities', createWorkflowActivityRoutes(process.env.WORKFLOW_ACTIVITY_TOKEN!, handler));
 app.get('/fixture-status', async c => {
   const [run] = await database.unsafe<{ state: string }>('select state from bp_workflow_runs where project_id=$1 and id=$2', [binding.projectId,binding.runId]);
@@ -54,4 +68,5 @@ app.post('/fixture-answer', async c => {
   await dispatchPendingDecision(module);
   return c.json({ ok: true });
 });
-Bun.serve({ port: 4320, fetch: app.fetch });
+const server = Bun.serve({ port: 4320, fetch: app.fetch });
+console.log('Restored fixture listening:', server.hostname, server.port);
