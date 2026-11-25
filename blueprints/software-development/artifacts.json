@@ -409,7 +409,8 @@
       "release"
     ],
     "consumers": [
-      "release"
+      "release",
+      "team-lead"
     ],
     "schema": {
       "type": "object",

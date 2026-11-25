@@ -3,7 +3,7 @@
   "schemaVersion": "1.0",
   "id": "software-development",
   "name": "Software Development",
-  "version": "1.0.1",
+  "version": "1.0.4",
   "projectType": "software-development",
   "description": "An extensible team for taking a software request from scoped intent to independently reviewed, verified delivery.",
   "entrypoint": "team-lead",
@@ -1710,7 +1710,8 @@
           "release"
         ],
         "consumers": [
-          "release"
+          "release",
+          "team-lead"
         ],
         "schema": {
           "type": "object",
@@ -2007,7 +2008,9 @@
         "test-environment",
         "live-environment",
         "documentation",
-        "requirements"
+        "requirements",
+        "release-runbook",
+        "release-target"
       ],
       "workspace": {
         "kind": "vm",
@@ -2404,6 +2407,17 @@
           },
           {
             "from": "verify",
+            "to": "verify",
+            "when": {
+              "status": "succeeded",
+              "recordType": "qa-evidence",
+              "field": "verdict",
+              "equals": "pending",
+              "decision": "retry-qa"
+            }
+          },
+          {
+            "from": "verify",
             "to": "verified",
             "when": {
               "status": "succeeded",
@@ -2515,18 +2529,26 @@
         "id": "release-view",
         "role": "release",
         "recordTypes": [
+          "candidate",
+          "qa-evidence",
           "release-runbook",
           "release-target",
           "deployment-evidence",
           "live-environment"
         ],
         "summaryFields": [
+          "revision",
           "candidateRevision",
           "target",
+          "url",
+          "verdict",
+          "passPercentage",
           "verified"
         ],
         "detailFields": [
-          "receipt"
+          "receipt",
+          "procedure",
+          "results"
         ],
         "renderer": "record-card"
       }

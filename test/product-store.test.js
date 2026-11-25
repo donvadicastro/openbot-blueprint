@@ -26,13 +26,15 @@ test('bot callbacks resolve their project from a joined native conversation and 
   const database = { async unsafe(sql, args) {
     if (sql.includes('from bp_conversations')) {
       assert.match(sql, /channel_memberships/);
-      assert.deepEqual(args, ['channel-a', 'member-a', 'qa']);
+      assert.deepEqual(args, ['channel-a', 'member-a', 'qa', null]);
       return [{ projectId: 'project-a', assignmentId: 'assignment-a' }];
     }
     return [project];
   } };
   assert.deepEqual(await requireBotProject(database, actor, 'channel-a', 'qa', 'work'), { project, assignmentId: 'assignment-a' });
   await assert.rejects(requireBotProject({ unsafe: async () => [] }, actor, 'foreign-channel', 'qa'), error => error.status === 404);
+  const ambiguous = { unsafe: async () => [{ projectId: 'project-a', assignmentId: 'one' }, { projectId: 'project-a', assignmentId: 'two' }] };
+  await assert.rejects(requireBotProject(ambiguous, actor, 'channel-a', 'shared-bot'), error => error.status === 404);
 });
 
 test('project lookup always checks membership and does not give global admins an implicit project grant', async () => {
@@ -70,6 +72,23 @@ test('idempotent project mutations replay once and reject changed payloads befor
   assert.equal(count, 1);
 });
 
+test('mutation replay rechecks nested resource authorization', async () => {
+  let allowed = true, effects = 0, row;
+  const database = { async begin(callback) { return callback(this); }, async unsafe(query, parameters) {
+    if (query.includes('from bp_projects')) return [project];
+    if (query.includes('select digest, response from bp_mutations')) return row ? [row] : [];
+    if (query.includes('insert into bp_mutations')) row = { digest: parameters[3], response: JSON.parse(parameters[4]) };
+    return [];
+  } };
+  const store = createProductStore(database);
+  const authorize = async () => { if (!allowed) throw new Error('conversation access revoked'); };
+  const action = async () => { effects++; return { id: 'work' }; };
+  assert.deepEqual(await store.mutate(actor, project.id, 'work', 'key', { request: 'x' }, action, authorize), { id: 'work' });
+  allowed = false;
+  await assert.rejects(store.mutate(actor, project.id, 'work', 'key', { request: 'x' }, action, authorize), /revoked/);
+  assert.equal(effects, 1);
+});
+
 test('artifact lookup binds project and viewer and filters restricted records in SQL', async () => {
   const database = { unsafe: async (query, parameters) => {
     if (query.includes('from bp_projects')) return [project];
@@ -80,6 +99,26 @@ test('artifact lookup binds project and viewer and filters restricted records in
     return [];
   }, begin: async callback => callback(database) };
   await assert.rejects(createProductStore(database).resolveArtifact(actor, project.id, 'known-foreign-artifact'), error => error.status === 404);
+});
+
+test('bot artifact lookup checks conversation, assignment, actor and pinned role grants', async () => {
+  const scopedProject = { ...project, blueprintKey: 'swe', blueprintVersion: '1' };
+  let type = { id: 'evidence', owner: 'qa', producers: ['qa'], consumers: ['lead'] };
+  const database = { async begin(callback) { return callback(this); }, async unsafe(query, parameters) {
+    if (query.includes('from bp_conversations')) return [{ projectId: project.id, assignmentId: 'assignment' }];
+    if (query.includes('from bp_projects')) return [scopedProject];
+    assert.match(query, /allowed_user_ids is null or \$5=any/);
+    assert.deepEqual(parameters, ['project-a', 'artifact', 'assignment', 'qa-bot', 'member-a', 'swe', '1', 'revision']);
+    return [{ id: 'revision', artifactId: 'artifact', typeKey: 'evidence', payload: { result: 'passed' }, roleKey: 'qa', definition: { business: { artifactTypes: [type] } } }];
+  } };
+  const store = createProductStore(database);
+  const result = await store.resolveBotArtifact(actor, 'channel', 'qa-bot', 'artifact', 'revision');
+  assert.equal(result.id, 'revision');
+  assert.equal(result.definition, undefined);
+  type = { id: 'evidence', owner: 'pm', producers: ['pm'], consumers: ['lead'] };
+  await assert.rejects(store.resolveBotArtifact(actor, 'channel', 'qa-bot', 'artifact', 'revision'), error => error.code === 'artifact_not_found');
+  database.unsafe = async query => query.includes('from bp_conversations') ? [] : [scopedProject];
+  await assert.rejects(store.resolveBotArtifact(actor, 'other-channel', 'qa-bot', 'artifact', 'revision'), error => error.code === 'project_not_found');
 });
 
 test('publication requires a publisher and detects changed content even when a supplied digest is reused', async () => {

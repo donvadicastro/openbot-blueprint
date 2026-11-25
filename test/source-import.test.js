@@ -4,6 +4,7 @@ import { mkdtemp, mkdir, writeFile, symlink, rm, readFile, readdir, chmod, renam
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { captureSource } from '../dist/deploy/workspace-provider/source-import.js';
 import { LimaWorkspaceProvider } from '../dist/deploy/workspace-provider/lima.js';
 
@@ -63,13 +64,33 @@ test('source intake is bounded to its root and rejects symlinks without modifyin
   const source = join(root,'application');
   await mkdir(source);
   await writeFile(join(source,'main.txt'),'baseline');
+  await chmod(join(source,'main.txt'), 0o755);
   const snapshot = await captureSource(root,source);
   assert.equal(snapshot.files,1);
+  const archived = execFileSync('tar', ['-xOf', snapshot.archive, './main.txt']);
+  const expectedDigest = createHash('sha256').update('main.txt').update('\0').update(String(0o755)).update('\0').update(String(archived.length)).update('\0').update(archived).digest('hex');
+  assert.equal(snapshot.digest, expectedDigest);
   assert.equal(await readFile(join(source,'main.txt'),'utf8'),'baseline');
   await snapshot.cleanup();
   await symlink('/etc/passwd',join(source,'escape'));
   await assert.rejects(captureSource(root,source),/symbolic link/);
   await assert.rejects(captureSource(source,root),/outside/);
+});
+
+test('source intake stays on the opened directory when its path is swapped for an outside symlink', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'openbot-intake-race-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const approved = join(root, 'approved'), source = join(approved, 'project');
+  const nested = join(source, 'nested'), outside = join(root, 'outside');
+  await mkdir(nested, { recursive: true }); await mkdir(outside);
+  await writeFile(join(nested, 'data'), 'inside'); await writeFile(join(outside, 'data'), 'outside');
+  const temporary = join(root, 'temporary'); await mkdir(temporary);
+  const helper = join(process.cwd(), 'deploy/workspace-provider/source_snapshot.py');
+  const script = `import importlib.util,json,os,sys\nspec=importlib.util.spec_from_file_location("snapshot",sys.argv[1]);m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)\nnested=sys.argv[3];outside=sys.argv[4];ino=os.stat(nested).st_ino;original=os.listdir;swapped=[False]\ndef listing(fd):\n if not swapped[0] and os.fstat(fd).st_ino==ino:\n  os.rename(nested,nested+"-old");os.symlink(outside,nested);swapped[0]=True\n return original(fd)\nm.os.listdir=listing\nresult=m.capture(sys.argv[2],sys.argv[3].rsplit(os.sep,1)[0],sys.argv[5]);print(json.dumps({**result,"swapped":swapped[0]}))`;
+  const result = JSON.parse(execFileSync('python3', ['-c', script, helper, approved, nested, outside, temporary], { encoding: 'utf8' }));
+  t.after(() => rm(result.archive, { force: true }));
+  assert.equal(result.swapped, true);
+  assert.equal(execFileSync('tar', ['-xOf', result.archive, './nested/data']).toString(), 'inside');
 });
 
 test('Git intake captures the committed revision while preserving uncommitted edits', async t => {
@@ -83,6 +104,9 @@ test('Git intake captures the committed revision while preserving uncommitted ed
   await writeFile(join(root, 'source.txt'), 'committed');
   git('add', 'source.txt');
   git('commit', '-m', 'baseline');
+  const clean = await captureSource(root, root);
+  t.after(clean.cleanup);
+  assert.equal(clean.excludesUncommittedChanges, false);
   await writeFile(join(root, 'source.txt'), 'changed');
   const snapshot = await captureSource(root, root);
   t.after(snapshot.cleanup);
@@ -103,4 +127,20 @@ test('worktree metadata pointing outside the selected root is not followed', asy
   t.after(snapshot.cleanup);
   assert.equal(snapshot.files, 1);
   assert.equal(execFileSync('tar', ['-xOf', snapshot.archive, './source.txt']).toString(), 'working-tree content');
+});
+
+test('Git intake rejects external object alternates and included configuration', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'openbot-git-indirection-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const repo = join(root, 'repo'); await mkdir(repo);
+  const git = (...args) => execFileSync('git', ['-C', repo, ...args], { stdio: 'pipe' }).toString().trim();
+  git('init'); git('config', 'user.email', 'test@example.invalid'); git('config', 'user.name', 'Test');
+  await writeFile(join(repo, 'source.txt'), 'baseline'); git('add', 'source.txt'); git('commit', '-m', 'baseline');
+  const alternates = join(repo, '.git', 'objects', 'info', 'alternates');
+  await writeFile(alternates, join(root, 'external-objects'));
+  await assert.rejects(captureSource(root, repo), /external objects/);
+  await rm(alternates);
+  const config = join(repo, '.git', 'config');
+  await writeFile(config, '[include]\n\tpath = /outside/config\n');
+  await assert.rejects(captureSource(root, repo), /included configuration/);
 });

@@ -2,16 +2,20 @@ import type { ReadinessProbe } from "./readiness.js";
 
 /** Run the assigned native bot as the authenticated project manager. */
 export function createNativeReadinessProbe(
-  runTurn: (input: { ownerUserId: string; routineId: string; agentId: string; threadId: string; instruction: string; checkWorkspace: () => Promise<{ verified: boolean; evidence: string }> }) => Promise<{ replyText: string }>,
+  runTurn: (input: { ownerUserId: string; routineId: string; agentId: string; threadId: string; instruction: string; workspaceRequired: boolean; checkWorkspace: () => Promise<{ verified: boolean; evidence: string }> }) => Promise<{ replyText: string }>,
   mintThreadId: () => string,
   verifyWorkspace?: (input: Parameters<ReadinessProbe>[0]) => Promise<{ verified: boolean; evidence: string }>,
 ): ReadinessProbe {
   return async input => {
     let workspaceEvidence: { verified: boolean; evidence: string } | undefined;
     const instruction = [
-      "Check your readiness for the assigned project role. Return only a JSON object:",
+      "Check your readiness for the assigned project role. Return one raw JSON object with no Markdown fences or surrounding text:",
       '{"ready":boolean,"checks":[{"id":string,"passed":boolean,"evidence":string}],"reason":string}.',
       "Include exactly one result for every requested check. Report a check as failed if you cannot actually verify it; never infer access from a supplied location or claim you inspected something you did not inspect.",
+      `The checks array must contain every one of these exact IDs: ${JSON.stringify(input.checks.map(check => check.id))}. Do not omit an ID, even if several checks use the same tool result.`,
+      "Only the checks listed below are required for this role. Do not add workspace or source access as a prerequisite when neither check is listed. Set ready to true if and only if every requested check passes.",
+      "This report describes your own assigned role, not the whole team. A role-ready check asks whether you can perform that role; it does not require an existing readiness report or workspace access. This report helps create the readiness record, so do not wait for that record to exist.",
+      "Return the report in your final assistant message as text. Do not use a state update to submit the report.",
       "For project workspace and source checks, call the project_workspace_check tool. Report them as failed unless the tool verifies access.",
       JSON.stringify({ projectId: input.projectId, role: input.roleKey, checks: input.checks,
         artifacts: input.artifacts.map(({ typeKey, status }) => ({ typeKey, status })) }),
@@ -19,11 +23,15 @@ export function createNativeReadinessProbe(
     const { replyText } = await runTurn({
       ownerUserId: input.actorId, routineId: `project-readiness:${input.projectId}`,
       agentId: input.nativeBotId, threadId: mintThreadId(), instruction,
+      workspaceRequired: input.checks.some(check => check.kind === "workspace-ready" || check.kind === "artifact-access"),
       checkWorkspace: async () => workspaceEvidence = verifyWorkspace
         ? await verifyWorkspace(input) : { verified: false, evidence: "Project-scoped workspace access is unavailable." },
     });
     let value: unknown;
-    try { value = JSON.parse(replyText); } catch { throw new Error("Bot returned invalid readiness JSON."); }
+    if (typeof replyText !== "string" || replyText.length > 64000) throw new Error("Bot returned invalid readiness JSON.");
+    const trimmed = replyText.trim();
+    const fenced = /^```(?:json)?[ \t]*\r?\n([\s\S]*?)\r?\n```$/i.exec(trimmed);
+    try { value = JSON.parse(fenced ? fenced[1] : trimmed); } catch { throw new Error("Bot returned invalid readiness JSON."); }
     if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Bot returned invalid readiness report.");
     const report = value as Record<string, unknown>;
     if (typeof report.ready !== "boolean" || !Array.isArray(report.checks) ||

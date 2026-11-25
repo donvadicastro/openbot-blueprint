@@ -66,7 +66,17 @@ export function workflowGateway(client: WorkflowClient, token: string, taskQueue
       const snapshot = await handle.query<WorkflowSnapshot>('snapshot');
       if (request.url === '/status') return reply(response, 200, { snapshot });
       if (request.url === '/decision') {
-        if (snapshot.state !== 'waiting' || typeof payload.decisionId !== 'string' || snapshot.decisionId !== payload.decisionId || !('value' in payload)) return reply(response, 409, { error: 'This run is not waiting for that decision.' });
+        if (typeof payload.decisionId !== 'string' || !('value' in payload)) return reply(response, 409, { error: 'This run is not waiting for that decision.' });
+        const previous = await handle.query<{ found: boolean; value?: unknown }, [string]>('decision', payload.decisionId);
+        if (previous.found) return JSON.stringify(previous.value) === JSON.stringify(payload.value)
+          ? reply(response, 202, { accepted: true }) : reply(response, 409, { error: 'The decision already has a different answer.' });
+        // The answer may have been committed while a lost activity response
+        // left the run uncertain. Reconciliation verifies it in OpenBot.
+        if (snapshot.state === 'uncertain') {
+          await handle.signal('reconcileUncertain');
+          return reply(response, 202, { accepted: true });
+        }
+        if (snapshot.state !== 'waiting' || snapshot.decisionId !== payload.decisionId) return reply(response, 409, { error: 'This run is not waiting for that decision.' });
         await handle.signal('answerDecision', payload.decisionId, payload.value);
         return reply(response, 202, { accepted: true });
       }

@@ -28,3 +28,17 @@ test('QA results cover exact scenarios and compute verdicts with the full denomi
   const passed = { ...report, verdict: 'passed', passPercentage: 100, results: [report.results[0], { id: 'two', status: 'passed', observed: 'worked' }] };
   assert.equal(check(passed).verdict, 'passed');
 });
+
+test('four scenarios use the full denominator for failure, blocked and passing reports', () => {
+  const ids = ['one', 'two', 'three', 'four'];
+  const plan = { candidateRevision: 'candidate', briefRevision: 'brief', environment: 'test', scenarios: ids.map(id => ({ id, steps: ['run'], expected: 'works' })) };
+  const common = { candidateRevision: 'candidate', briefRevision: 'brief', planRevision: 'plan', environment: 'test' };
+  const first = ids.slice(0, 3).map(id => ({ id, status: 'passed', observed: 'worked', evidence: ['log'] }));
+  const check = report => validateQaReport(plan, 'plan', ids, report, new Set(['log']));
+  const failed = { ...common, verdict: 'failed', passPercentage: 75, results: [...first, { id: 'four', status: 'failed', observed: 'broken' }] };
+  const blocked = { ...common, verdict: 'pending', passPercentage: 75, results: [...first, { id: 'four', status: 'blocked', reason: 'unavailable' }] };
+  const passed = { ...common, verdict: 'passed', passPercentage: 100, results: [...first, { id: 'four', status: 'passed', observed: 'worked' }] };
+  assert.deepEqual([check(failed).verdict, check(blocked).verdict, check(passed).verdict], ['failed', 'pending', 'passed']);
+  assert.throws(() => check({ ...blocked, passPercentage: 100 }), /percentage/);
+  assert.throws(() => check({ ...passed, results: passed.results.slice(0, 3) }), /exactly one/);
+});

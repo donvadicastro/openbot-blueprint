@@ -1,19 +1,26 @@
 import { createHash } from "node:crypto";
-import { ProductError, requireBotProject, requireOperational, requireProject, type ProductActor } from "./access.js";
+import { ProductError, requireBotProject, requireOperational, requireProject, type ProductActor, type ProductQuery } from "./access.js";
 import type { ProductModule } from "./module.js";
 import { workspaceCall } from "./workspace.js";
+import { requireReadyReports } from "./readiness-gate.js";
+
+export type WorkspaceActionContext = {
+  actor: ProductActor; projectId: string; assignmentId: string; nativeBotId: string;
+  actionId: string; tool: string; operationKey: string; channelId?: string; qaRevision?: string;
+};
 
 /** Only call from a native authenticated bot turn; do not accept its identity or tool from user input. */
-export async function authorizedWorkspaceAction(module: ProductModule, context: {
-  actor: ProductActor; projectId: string; assignmentId: string; nativeBotId: string;
-  actionId: string; tool: string; operationKey: string; channelId?: string;
-}, argv?: string[]) {
+export async function authorizedWorkspaceAction(module: ProductModule, context: WorkspaceActionContext, argv?: string[]) {
+  return module.database.begin(transaction => authorizedWorkspaceActionInTransaction(module, transaction, context, argv));
+}
+
+/** The transaction must remain open through the provider call and its authorization locks. */
+export async function authorizedWorkspaceActionInTransaction(module: ProductModule, transaction: ProductQuery, context: WorkspaceActionContext, argv?: string[]) {
   if (typeof context.operationKey !== "string" || !/^[a-zA-Z0-9._:-]{1,200}$/.test(context.operationKey)) {
     throw new ProductError(422, "invalid_operation", "A valid operation key is required.");
   }
-  return module.database.begin(async transaction => {
   if (context.channelId) {
-    const binding = await requireBotProject(transaction, context.actor, context.channelId, context.nativeBotId, "work");
+    const binding = await requireBotProject(transaction, context.actor, context.channelId, context.nativeBotId, "work", context.assignmentId);
     if (binding.project.id !== context.projectId || binding.assignmentId !== context.assignmentId) {
       throw new ProductError(404, "project_not_found", "Project not found.");
     }
@@ -30,18 +37,23 @@ export async function authorizedWorkspaceAction(module: ProductModule, context: 
   const definition = await module.definitionFor(project);
   const role = definition.business?.roles.find(item => item.id === assignment.roleKey);
   const agent = definition.agents.find(item => item.id === assignment.nativeBotId);
+  const action = definition.business?.actions.find(item => item.id === context.actionId);
   if (!role || role.agentId !== assignment.nativeBotId || !role.actions.includes(context.actionId)
-    || !agent?.tools.includes(context.tool) || !["workspace-edit", "test-runner"].includes(context.tool)) {
+    || !action || action.role !== role.id || !agent?.tools.includes(context.tool) || !["workspace-edit", "test-runner"].includes(context.tool)) {
     throw new ProductError(403, "tool_denied", "This project role cannot use that tool for this action.");
   }
-  const reports = await transaction.unsafe<{ roleKey: string; revision: number; reportedRevision: number; status: string }>(`
-    select a.role_key as "roleKey",a.revision,r.assignment_revision as "reportedRevision",r.status
-    from bp_assignments a join bp_readiness r on r.project_id=a.project_id and r.assignment_id=a.id
-    where a.project_id=$1 for share of a,r`, [project.id]);
-  if (!definition.business || reports.length !== definition.business.roles.length || definition.business.roles.some(item =>
-    !reports.some(report => report.roleKey === item.id && report.revision === report.reportedRevision && report.status === "Ready"))) {
-    throw new ProductError(409, "readiness_stale", "The project team must complete current readiness checks before work starts.");
+  if (context.qaRevision !== undefined && (context.tool !== 'test-runner' || definition.projectType !== 'software-development' ||
+      !action.outputTypes.includes('qa-evidence') || !/^[a-f0-9]{40,64}$/.test(context.qaRevision))) {
+    throw new ProductError(403, 'tool_denied', 'This action cannot run a protected QA candidate.');
   }
+  if (definition.projectType === 'software-development' && action.outputTypes.includes('qa-evidence') && !context.qaRevision) {
+    throw new ProductError(409, 'qa_candidate_required', 'QA must run through the protected candidate workspace.');
+  }
+  // Approval-protected effects must use the dedicated release gate. Until that
+  // gate verifies the exact candidate and target, a shell cannot dispatch them.
+  if (action.approvalRequired) throw new ProductError(409, "approval_gate_unavailable", "This action requires the release approval gate.");
+  if (!definition.business) throw new ProductError(409, "blueprint_unavailable", "The project blueprint is unavailable.");
+  await requireReadyReports(transaction, project.id, definition.business.roles);
   const [vm] = await transaction.unsafe<{ providerId: string | null; sourceRevision: string | null; state: string }>(
     'select provider_id as "providerId", source_revision as "sourceRevision", state from bp_project_vms where project_id=$1 for share', [project.id],
   );
@@ -59,6 +71,9 @@ export async function authorizedWorkspaceAction(module: ProductModule, context: 
   if (health.isolated !== true) {
     throw new ProductError(409, "workspace_isolation_unverified", "The project workspace network isolation has not been verified.");
   }
+  if (context.qaRevision && health.qaSandbox !== 'git-readonly-v1') {
+    throw new ProductError(409, 'qa_sandbox_unavailable', 'The workspace provider does not support the protected QA sandbox.');
+  }
   if (definition.business.artifactTypes.some(item => item.id === "source-code")) {
     const [source] = await transaction.unsafe<{ id: string }>(`select id from bp_artifacts
       where project_id=$1 and type_key='source-code' and status='supplied'
@@ -72,8 +87,8 @@ export async function authorizedWorkspaceAction(module: ProductModule, context: 
   const operationKey = createHash("sha256").update(JSON.stringify([
     project.id, context.assignmentId, context.actionId, context.tool, context.operationKey,
   ])).digest("hex");
-  return workspaceCall(argv ? "run" : "reconcile", { ...binding, operationKey, ...(argv ? { argv } : {}) });
-  });
+  return workspaceCall(argv ? "run" : "reconcile", { ...binding, operationKey,
+    ...(argv ? { argv, ...(context.qaRevision ? { qa: { revision: context.qaRevision } } : {}) } : {}) });
 }
 
 /** Bind a native bot callback to its authenticated conversation and recheck it at dispatch. */

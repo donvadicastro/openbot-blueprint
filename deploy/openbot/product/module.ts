@@ -76,7 +76,7 @@ export async function createProductModule(database: ProductDatabase, tenantDirec
     if (!version) throw new ProductError(409, "blueprint_unavailable", "The project blueprint version is unavailable.");
     return version.definition;
   }
-  return { database, store, definition, definitionFor, ensure, publish };
+  return { database, store, definition, definitionFor, ensure, publish, schema };
 }
 
 export type ProductModule = NonNullable<Awaited<ReturnType<typeof createProductModule>>>;

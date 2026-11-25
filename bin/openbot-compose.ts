@@ -145,6 +145,16 @@ export async function provisionOpenBot(
     MANAGED_AGENT_AG_UI_URL: native.MANAGED_AGENT_AG_UI_URL || 'http://implementer-bot:4201/ag-ui',
   };
   const errors = validateOpenBotEnvironment(selected, blueprint);
+  const workflowCredentials = ['WORKFLOW_POSTGRES_PASSWORD', 'WORKFLOW_ACTIVITY_TOKEN', 'WORKFLOW_ENGINE_TOKEN'] as const;
+  for (const name of workflowCredentials) {
+    if (!native[name]?.trim()) errors.push(`${name} is required in the OpenBot environment`);
+    else if (native[name]!.trim().length < 32) errors.push(`${name} must contain at least 32 characters`);
+  }
+  const workflowValues = workflowCredentials.map(name => native[name]?.trim()).filter(Boolean);
+  if (new Set(workflowValues).size !== workflowValues.length) errors.push('Workflow credentials must have distinct values');
+  const nativeTokens = ['COMPUTER_TOKEN', 'SUPERVISOR_TOKEN', 'AGENT_TOOL_TOKEN', 'WORKER_SHARED_SECRET', 'MANAGED_AGENT_TOKEN']
+    .map(name => native[name]?.trim()).filter(Boolean);
+  if (workflowValues.some(value => nativeTokens.includes(value))) errors.push('Workflow and native service credentials must have distinct values');
   if (errors.length) throw new Error(`OpenBot startup blocked:\n${errors.map(message => `  ${message}`).join('\n')}`);
   const directory = resolve(options.stateDirectory ?? join(root, '.openbot', 'deployments'));
   const file = join(directory, 'installations.json');
@@ -195,11 +205,12 @@ export async function provisionOpenBot(
     IMPLEMENTER_ENV_FILE: native.IMPLEMENTER_ENV_FILE ? resolve(root, native.IMPLEMENTER_ENV_FILE) : join(dirname(binding.envFile), '.env.implementer'),
     APP_PORT: String(binding.appPort),
   };
-  const compose = ['compose', '--project-name', binding.composeProject, '--env-file', binding.envFile, '-f', join(root, 'docker-compose.yml')];
+  const compose = ['compose', '--project-name', binding.composeProject, '--env-file', binding.envFile,
+    '-f', join(root, 'docker-compose.yml')];
   let state: DeploymentBinding['state'] = 'failed';
   try {
     await run([...compose, 'config', '--quiet'], composeEnv);
-    await run([...compose, 'up', '--build', '-d'], composeEnv);
+    await run([...compose, 'up', '--build', '-d', '--wait', '--wait-timeout', '300'], composeEnv);
     state = 'ready';
   } finally {
     await registryTransaction(directory, async () => {

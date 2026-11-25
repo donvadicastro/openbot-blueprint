@@ -11,7 +11,7 @@ test('private gateway binds run identity and deduplicates starts', { timeout: 12
   const taskQueue = `gateway-test-${randomUUID()}`;
   const worker = await Worker.create({ connection: environment.nativeConnection, taskQueue, maxCachedWorkflows: 0,
     workflowsPath: fileURLToPath(new URL('../dist/workflows.js', import.meta.url)),
-    activities: { async executePhase(request) { return request.decision ? { kind: 'complete', result: 'done' } : { kind: 'wait', decisionId: 'decision', question: 'Continue?' }; }, async reconcilePhase() { return { kind: 'uncertain', reason: 'unknown' }; } } });
+    activities: { async executePhase(request) { return request.runId === 'uncertain-run' ? { kind: 'uncertain', reason: 'response lost' } : request.decision ? { kind: 'complete', result: 'done' } : { kind: 'wait', decisionId: 'decision', question: 'Continue?' }; }, async reconcilePhase(request) { return request.runId === 'uncertain-run' ? { kind: 'complete', result: 'reconciled' } : { kind: 'uncertain', reason: 'unknown' }; } } });
   const running = worker.run();
   const token = 'x'.repeat(32);
   const gateway = workflowGateway(environment.client.workflow, token, taskQueue);
@@ -36,6 +36,29 @@ test('private gateway binds run identity and deduplicates starts', { timeout: 12
     assert.equal(status.body.snapshot.state, 'waiting');
     assert.equal((await post('/decision', { run, decisionId: 'wrong', value: 'yes' })).status, 409);
     assert.equal((await post('/decision', { run, decisionId: 'decision', value: 'yes' })).status, 202);
+    for (let i = 0; i < 100; i++) {
+      status = await post('/status', { run });
+      if (status.body.snapshot?.state === 'complete') break;
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    assert.equal(status.body.snapshot.state, 'complete');
+    assert.equal((await post('/decision', { run, decisionId: 'decision', value: 'yes' })).status, 202);
+    assert.equal((await post('/decision', { run, decisionId: 'decision', value: 'no' })).status, 409);
+    const uncertain = { ...run, runId: 'uncertain-run' };
+    assert.equal((await post('/start', { run: uncertain })).status, 201);
+    for (let i = 0; i < 100; i++) {
+      status = await post('/status', { run: uncertain });
+      if (status.body.snapshot?.state === 'uncertain') break;
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    assert.equal(status.body.snapshot.state, 'uncertain');
+    assert.equal((await post('/decision', { run: uncertain, decisionId: 'decision', value: 'yes' })).status, 202);
+    for (let i = 0; i < 100; i++) {
+      status = await post('/status', { run: uncertain });
+      if (status.body.snapshot?.state === 'complete') break;
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    assert.equal(status.body.snapshot.result, 'reconciled');
   } finally {
     await new Promise(resolve => gateway.close(resolve));
     worker.shutdown(); await running; await environment.teardown();

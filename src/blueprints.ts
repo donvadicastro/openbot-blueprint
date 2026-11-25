@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { validateSchema } from './schema.js';
 import { validateContract } from './blueprint-contract.js';
 import type { Schema } from './schema.js';
-import type { Agent, Blueprint } from './types.js';
+import type { Agent, Blueprint, BusinessContract } from './types.js';
 
 export const root = fileURLToPath(new URL('../../', import.meta.url));
 const schema: Schema = JSON.parse(await readFile(join(root, 'schemas/blueprint.schema.json'), 'utf8'));
@@ -118,8 +118,21 @@ export async function scaffold(source: string, output: string, id: string) {
   return out;
 }
 
-async function systemPrompt(agent: Agent, agents: Agent[], entrypoint: string, coordinator: string | undefined, directory: string) {
+async function systemPrompt(agent: Agent, agents: Agent[], entrypoint: string, coordinator: string | undefined, directory: string, business?: BusinessContract) {
   const prompt = await readAsset(directory, agent.prompt);
+  const projectRoles = business?.roles.filter(role => role.agentId === agent.id) ?? [];
+  if (projectRoles.length) {
+    const roles = projectRoles.flatMap(role => [
+      `### ${role.id}`,
+      role.responsibility,
+      `Declared actions: ${role.actions.length ? role.actions.join(', ') : 'none'}.`,
+      ...role.startupChecks.map(check => `- ${check.id}: ${check.description}`),
+    ]);
+    const planning = projectRoles.some(role => role.id === business?.teamLeadRole)
+      ? '\nUse project_workflows to inspect published processes. For a clear request, use project_prepare_workflow to save the matching process, or ask a focused clarification when needed. A saved plan is pending: do not claim work has started until execution is confirmed.\n'
+      : '';
+    return `${prompt.trimEnd()}\n\n## Project role contract\n\nUse the project's recorded readiness and workflow state. Your tools and feedback never override required checks, evidence, or approvals. When a user provides guidance for your future work, use project_memory_propose to record it. Correct existing entries using their exact revision. If new feedback conflicts with existing guidance and its meaning is unclear, mark a conflict and ask the user to clarify; do not guess.\n${planning}\n${roles.join('\n')}\n`;
+  }
   const coordinating = agent.id === entrypoint || agent.id === coordinator;
   const readiness = (coordinating ? agents : [agent]).flatMap(bot => bot.readiness?.length
     ? [
@@ -149,7 +162,7 @@ export async function exportOpenBot(input: string, output: string, includeOption
     avatar_seed: a.id,
     ...(a.runtime?.kind === 'remote'
       ? { type: 'remote-ag-ui', endpoint: `\${${a.runtime.endpointEnv}}` }
-      : { type: 'built-in', system_prompt: await systemPrompt(a, agents, b.entrypoint, b.intake?.handoffTo, dirname(path)) })
+      : { type: 'built-in', system_prompt: await systemPrompt(a, agents, b.entrypoint, b.intake?.handoffTo, dirname(path), b.business) })
   })));
   const out = await createOutput(output, [await realpath(dirname(path))]);
   const files = {

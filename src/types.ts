@@ -50,6 +50,10 @@ export interface Tool {
   transport: 'mcp' | 'native' | 'http';
   endpointEnv?: string;
   credentialEnv?: string;
+  /** Exact OpenBot MCP references granted to the bot, in server-id/tool-name form. */
+  nativeRefs?: string[];
+  /** Bind MCP arguments to visible active-phase artifact fields for project workflow use. */
+  resourceBindings?: { argumentPath: string; artifactType: string; payloadPath: string }[];
   capabilities: string[];
   access: 'read' | 'write' | 'execute';
   setup: string;

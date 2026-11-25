@@ -4,7 +4,7 @@ Run the baseline checks on the current repository. Run the project and workflow 
 
 ## Prerequisites
 
-- Node.js 22+ and npm for the CLI checks.
+- Node.js 22+ and npm for the CLI checks; Python 3 for descriptor-relative host source intake.
 - A working Docker engine with Compose, a reachable host running Lima with the platform’s supported hypervisor, and enough disk and memory for two simultaneous project VMs.
 - One test owner, a member of only one project, and a designated release approver. Use the authenticated OpenBot configuration for permission tests.
 - A local fixture folder with a small application, four deterministic acceptance scenarios, and a disposable staging target that can look up deployment receipts by operation ID.
@@ -22,7 +22,7 @@ docker info --format '{{.ServerVersion}}'
 limactl --version
 ```
 
-Prepare local environment files as described in the [Compose guide](../../docs/docker-compose.md), with valid credentials, and place a copy of the source fixture under the configured projects folder. Check the current Compose baseline:
+Prepare local environment files as described in the [Compose guide](../../docs/docker-compose.md), with valid credentials, and place a copy of the source fixture under the configured projects folder. For the blueprint provision command, set the three distinct workflow credentials in that environment file as well. Check the current Compose baseline:
 
 ```sh
 docker compose config --quiet
@@ -39,19 +39,61 @@ npm run blueprint -- provision <blueprint-id> --env-file <path> --app-port <port
 
 Replace the angle-bracket values before running. Provisioning resolves one stable Compose identity per blueprint key in the current deployment environment. Use a separate environment file and port for the distinct blueprint fixture. The command prints the effective Compose project name and app URL for the scenarios below.
 
+For optional live-model component checks, load a chat model in LM Studio and use its exact ID. These checks create disposable database records and simulated service, QA, or staging data; they do not complete the full pilot. The default fixture image can be overridden with `OPENBOT_TEST_IMAGE` after building the pinned server image.
+
+```sh
+LIVE_WORKFLOW_MODEL=qwen/qwen3-coder-30b \
+LIVE_SKIP_PHASE=1 LIVE_SKIP_LEAD=1 LIVE_SWE_PM=1 \
+OPENAI_BASE_URL=http://host.docker.internal:1234/v1 \
+bash test/integration/project-initialization.sh
+```
+
+Replace `LIVE_SWE_PM=1` with `LIVE_READINESS=1`, `LIVE_SWE_QA=1`, `LIVE_FEEDBACK=1`, `LIVE_TEMP_PLAN=1`, or `LIVE_RELEASE_SUMMARY=1` to run the other isolated model checks. Model output can fail these checks; inspect the tool responses and do not count a rejected or simulated result as an accepted end-to-end run.
+
+For the readiness variant, add `LIVE_REAL_READINESS=1` and set `LIMACTL_PATH` to a working Lima executable to use a new disposable VM and synthetic source instead of the simulated workspace. The native bot resolver and readiness probe run against the local model; turn persistence remains a fixture.
+
+To exercise a disposable restore of the project database, Temporal state, and a real Lima workspace together, build the pinned server image and run:
+
+```sh
+OPENBOT_TEST_REAL_VM_RESTORE=1 \
+LIMACTL_PATH=/path/to/limactl \
+OPENBOT_TEST_IMAGE=openbot-blueprint-server:current-verify \
+bash test/integration/workflow-adapter-compose.sh
+```
+
+Use an image tag that exists locally and replace the Lima path. The fixture stops its disposable worker, snapshots its databases and a stopped disposable VM and provider receipts, restores them into isolated test instances, and checks that the recovered workflow produces one guest-side effect. It also checks the VM's uncertain operation is held before reconciliation. It does not restore or modify an existing production project.
+
+After building a pinned server image, type-check the server overlay in a disposable container with:
+
+```sh
+OPENBOT_TEST_IMAGE=<local-pinned-server-image> sh test/integration/server-typecheck.sh
+```
+
+Replace the placeholder with the image tag. This checks the pinned server source and overlay using the compiler configuration included in the image.
+
 ## Project setup and isolation
+
+For an existing installation, open **Previous projects** and select a previous
+project. Verified private conversations are imported automatically. If a
+group contains shared or unverifiable conversations, use **Import project**
+and select only the private conversations to attach. Leave other conversations
+unselected; they remain accessible from Previous projects. The selection is
+remembered on later visits, and selecting no conversations imports just the
+project and its source. Retrying the import returns the same project.
 
 1. Open **Projects** and create two SWE projects from the same fixture folder. Submit only the source for the first, and an unusable required input for the second. Expect separate project IDs, distinct VMs and project conversations, and per-bot readiness reports. Confirm the blocked project shows a focused Team Lead question and refuses operational work until corrected. Repeat with missing, stale, and inaccessible prerequisites. Time setup for five pilot owners with the stack and VM image ready. **SC-001, SC-006, SC-009**
 2. Edit and build only in the first VM. Verify that the source and second guest are unchanged, and that a member or bot in one project cannot access a known ID from the other without membership. Restart the app and worker and verify the same guest and disk retain the edit and build output. **SC-004, SC-008**
 3. Repeat SWE provisioning, including a newer published version of that blueprint, and verify the existing installation is identified. Provision the distinct blueprint on another port, run a supported workflow there, and restart or stop the SWE app while the second app remains reachable with its data intact. Existing projects retain their pinned version. **SC-004**
 
+For the timed setup check, prepare the stack, model endpoint and VM image before each trial. Give each of five owners the same fixture and instructions; start timing when they open Projects and stop when the project is Operational with every specialist ready. Record elapsed time, completion, blockers and any assistance in the pilot record. Do not count automated checks or a simulated user as a participant. Keep source folders and project identities separate for each trial.
+
 For the restart check, replace `<swe-compose-name>` with the name printed at provisioning and run the command with the same environment and Compose files used for that installation:
 
 ```sh
-docker compose -p <swe-compose-name> restart server worker
+docker compose -p <swe-compose-name> --env-file <env-file> -f docker-compose.yml restart server worker workflow-worker
 ```
 
-When the fallback workflow engine is active, restart its worker as well. For a durability proof, use persisted engine storage.
+Use the same environment file passed to provisioning. For a durability proof, retain the provisioned engine's persistent storage.
 
 ## Feature flow, role memory, and live QA
 

@@ -5,6 +5,7 @@ set -eu
 root=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
 scratch=$(mktemp -d)
 export COMPOSE_PROJECT_NAME="obwf-$$"
+export APP_PORT=$((20000 + $$ % 30000))
 export WORKFLOW_POSTGRES_PASSWORD="temporary-test-password"
 export WORKFLOW_ACTIVITY_TOKEN="temporary-activity-token-0123456789abcdef"
 export WORKFLOW_ENGINE_TOKEN="temporary-engine-token-0123456789abcdef"
@@ -30,7 +31,7 @@ services:
 volumes:
   fixture-data:
 EOF
-compose() { docker compose -p "$COMPOSE_PROJECT_NAME" -f "$root/docker-compose.yml" -f "$root/deploy/workflow/compose.yml" -f "$scratch/override.yml" "$@"; }
+compose() { docker compose -p "$COMPOSE_PROJECT_NAME" -f "$root/docker-compose.yml" -f "$scratch/override.yml" "$@"; }
 cleanup() { compose down -v --remove-orphans >/dev/null 2>&1 || true; rm -rf "$scratch"; }
 trap cleanup EXIT HUP INT TERM
 compose up -d --build workflow-worker

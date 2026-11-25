@@ -4,7 +4,10 @@ function parseOutcome(value: unknown, reconcile: boolean): PhaseOutcome | { kind
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid workflow activity response.');
   const item = value as Record<string, unknown>;
   const text = (key: string) => typeof item[key] === 'string' && (item[key] as string).trim().length > 0 && (item[key] as string).length <= 4000;
-  if (item.kind === 'advance' && text('nextPhase')) return { kind: 'advance', nextPhase: item.nextPhase as string };
+  if (item.kind === 'advance' && text('nextPhase') && (item.delaySeconds === undefined ||
+      (Number.isSafeInteger(item.delaySeconds) && (item.delaySeconds as number) >= 0 && (item.delaySeconds as number) <= 31536000))) {
+    return { kind: 'advance', nextPhase: item.nextPhase as string, ...(item.delaySeconds !== undefined ? { delaySeconds: item.delaySeconds as number } : {}) };
+  }
   if (item.kind === 'wait' && text('decisionId') && text('question')) return { kind: 'wait', decisionId: item.decisionId as string, question: item.question as string };
   if (item.kind === 'complete' && text('result')) return { kind: 'complete', result: item.result as string };
   if ((item.kind === 'blocked' || item.kind === 'uncertain') && text('reason')) return { kind: item.kind, reason: item.reason as string };

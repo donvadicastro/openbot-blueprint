@@ -80,11 +80,47 @@ test('a reachable VM without verified network isolation keeps the project blocke
   }
 });
 
-test('project setup hides restricted source details from members without artifact access', async () => {
+test('a recovered VM is marked ready before bots recheck it, and its source revision must match', async () => {
   const f = fixture();
+  const vm = { providerId: 'vm', sourceRevision: 'revision', state: 'Blocked' };
   const original = f.module.database.unsafe;
   f.module.database.unsafe = async function (sql, args = []) {
-    if (sql.includes('from bp_project_vms')) return [{ state: 'Ready', sourceRevision: 'private-revision', excludedPaths: ['private/path'], excludesUncommittedChanges: true }];
+    if (sql.includes("update bp_project_vms set state='Ready'")) { vm.state = 'Ready'; return [{ projectId: 'project-a' }]; }
+    if (sql.includes('from bp_project_vms')) return [vm];
+    return original.call(this, sql, args);
+  };
+  f.module.definitionFor = async () => ({ business: { roles: [{ id: 'qa', startupChecks: [{ id: 'role-ready', kind: 'role-ready' }] }], initialization: { workspace: { kind: 'vm' }, requiredArtifacts: [] } } });
+  const oldFetch = globalThis.fetch, oldUrl = process.env.WORKSPACE_PROVIDER_URL, oldToken = process.env.WORKSPACE_PROVIDER_TOKEN;
+  process.env.WORKSPACE_PROVIDER_URL = 'http://provider.invalid'; process.env.WORKSPACE_PROVIDER_TOKEN = 'test-token';
+  let sourceRevision = 'old-revision';
+  globalThis.fetch = async url => ({ ok: true, json: async () => url.pathname === '/check' ? { id: 'vm', ready: true, isolated: true } : { hasProject: true, revision: sourceRevision } });
+  try {
+    let probed = false;
+    const probe = async () => { probed = true; assert.equal(vm.state, 'Ready'); return { ready: true, checks: [{ id: 'role-ready', passed: true, evidence: 'checked' }] }; };
+    await readinessOperations(f.module, probe).refresh({ id: 'owner', role: 'user' }, 'project-a');
+    assert.equal(probed, false);
+    assert.equal(f.project.state, 'Initializing');
+    sourceRevision = 'revision';
+    await readinessOperations(f.module, probe).refresh({ id: 'owner', role: 'user' }, 'project-a');
+    assert.equal(probed, true);
+    assert.equal(vm.state, 'Ready');
+    assert.equal(f.project.state, 'Operational');
+  } finally {
+    globalThis.fetch = oldFetch;
+    if (oldUrl === undefined) delete process.env.WORKSPACE_PROVIDER_URL; else process.env.WORKSPACE_PROVIDER_URL = oldUrl;
+    if (oldToken === undefined) delete process.env.WORKSPACE_PROVIDER_TOKEN; else process.env.WORKSPACE_PROVIDER_TOKEN = oldToken;
+  }
+});
+
+test('project setup hides restricted source details from members without artifact access', async () => {
+  const f = fixture();
+  f.module.definitionFor = async () => ({ business: {
+    roles: [{ id: 'qa', startupChecks: [] }], artifactTypes: [{ id: 'source-code', owner: 'other-role', producers: [], consumers: [] }],
+    initialization: { workspace: { kind: 'vm' }, requiredArtifacts: [] },
+  } });
+  const original = f.module.database.unsafe;
+  f.module.database.unsafe = async function (sql, args = []) {
+    if (sql.includes('from bp_project_vms')) return [{ state: 'Ready', sourceRevision: 'private-revision', excludedPaths: ['private/path'], excludesUncommittedChanges: true, reason: 'Cannot read private/path' }];
     if (sql.includes('from bp_artifacts') && sql.includes('allowed_user_ids')) {
       assert.deepEqual(args, ['project-a', 'viewer']);
       return [];
@@ -97,6 +133,8 @@ test('project setup hides restricted source details from members without artifac
   assert.equal(result.workspace.sourceRevision, null);
   assert.deepEqual(result.workspace.excludedPaths, []);
   assert.equal(result.workspace.excludesUncommittedChanges, false);
+  assert.equal(result.workspace.reason, 'Workspace details are unavailable.');
+  assert.deepEqual(result.reports[0].evidence, { reason: 'Some readiness details are restricted.', checks: [] });
 });
 
 test('a bot must report every declared check with evidence', async () => {
@@ -111,6 +149,40 @@ test('a bot must report every declared check with evidence', async () => {
     return { ready: true, checks: [{ id: 'role-ready', passed: true, evidence: 'checked by qa-bot' }] };
   }).refresh({ id: 'owner', role: 'user' }, 'project-a');
   assert.equal(g.project.state, 'Operational');
+});
+
+test('malformed bot readiness output is blocked without crashing or being persisted as evidence', async () => {
+  const f = fixture();
+  const result = await readinessOperations(f.module, async () => ({ ready: true, checks: [{ id: 'role-ready', passed: 'yes', evidence: {} }] }))
+    .refresh({ id: 'owner', role: 'user' }, 'project-a');
+  assert.equal(result.project.state, 'Initializing');
+  assert.equal(result.reports[0].status, 'Blocked');
+  assert.deepEqual(result.reports[0].evidence.checks, []);
+});
+
+test('readiness probes receive only artifacts visible to the actor and granted to the role', async () => {
+  const f = fixture();
+  const original = f.module.database.unsafe;
+  f.module.definitionFor = async () => ({ business: {
+    roles: [{ id: 'qa', startupChecks: [{ id: 'role-ready', kind: 'role-ready' }] }],
+    artifactTypes: [
+      { id: 'allowed', owner: 'qa', producers: [], consumers: [] },
+      { id: 'other-role', owner: 'pm', producers: [], consumers: [] },
+      { id: 'restricted', owner: 'qa', producers: [], consumers: [] },
+      { id: 'source-code', owner: 'qa', producers: [], consumers: [] },
+    ], initialization: { workspace: { kind: 'none' }, requiredArtifacts: [] },
+  } });
+  const records = ['allowed', 'other-role', 'restricted', 'source-code'].map(typeKey => ({ typeKey, status: 'supplied', source: { secret: typeKey } }));
+  f.module.database.unsafe = async function (sql, args = []) {
+    if (sql.includes('from bp_project_vms')) return [{ providerId: 'private-vm', sourceRevision: 'private-revision', state: 'Ready' }];
+    if (sql.includes('from bp_artifacts')) return sql.includes('allowed_user_ids') ? records.filter(item => !['restricted', 'source-code'].includes(item.typeKey)) : records;
+    return original.call(this, sql, args);
+  };
+  await readinessOperations(f.module, async input => {
+    assert.deepEqual(input.artifacts.map(artifact => artifact.typeKey), ['allowed']);
+    assert.equal(input.workspace, null);
+    return { ready: true, checks: [{ id: 'role-ready', passed: true, evidence: 'ready' }] };
+  }).refresh({ id: 'owner', role: 'user' }, 'project-a');
 });
 
 test('a readiness response cannot activate a project changed during the probe', async () => {
@@ -138,6 +210,7 @@ test('native readiness addresses the assigned bot as the authenticated owner and
   assert.equal(turn.ownerUserId, 'owner');
   assert.equal(turn.agentId, 'qa');
   assert.equal(turn.threadId, 'fresh-thread');
+  assert.equal(turn.workspaceRequired, true);
   assert.equal(result.ready, false);
   assert.equal(result.checks[1].passed, false);
 });
@@ -148,6 +221,31 @@ test('native readiness rejects invalid or incomplete bot output', async () => {
   for (const replyText of ['not json', '{"ready":true,"checks":[]}', '{"ready":true,"checks":[{"id":"other","passed":true,"evidence":"x"}]}']) {
     await assert.rejects(createNativeReadinessProbe(async () => ({ replyText }), () => 'thread')(input));
   }
+});
+
+test('roles without workspace checks do not receive workspace verification as a requirement', async () => {
+  const input = { actorId: 'owner', projectId: 'p', nativeBotId: 'pm', assignmentId: 'a', roleKey: 'pm',
+    checks: [{ id: 'role-ready', kind: 'role-ready' }], artifacts: [], workspace: null };
+  let scope;
+  const probe = createNativeReadinessProbe(async turn => {
+    scope = turn;
+    return { replyText: JSON.stringify({ ready: true, checks: [{ id: 'role-ready', passed: true, evidence: 'available' }] }) };
+  }, () => 'thread');
+  assert.equal((await probe(input)).ready, true);
+  assert.equal(scope.workspaceRequired, false);
+});
+
+test('readiness accepts a single fenced JSON report without relaxing workspace verification', async () => {
+  const input = { actorId: 'owner', projectId: 'p', nativeBotId: 'qa', assignmentId: 'a', roleKey: 'qa',
+    checks: [{ id: 'source-access', kind: 'artifact-access', artifactType: 'source-code' }], artifacts: [], workspace: null };
+  const report = JSON.stringify({ ready: true, checks: [{ id: 'source-access', passed: true, evidence: 'checked' }] });
+  const verifier = async () => ({ verified: true, evidence: 'Verified project source.' });
+  const probe = createNativeReadinessProbe(async turn => { await turn.checkWorkspace(); return { replyText: `\`\`\`json\n${report}\n\`\`\`` }; }, () => 'thread', verifier);
+  assert.equal((await probe(input)).ready, true);
+  const noTool = createNativeReadinessProbe(async () => ({ replyText: `\`\`\`json\n${report}\n\`\`\`` }), () => 'thread', verifier);
+  assert.equal((await noTool(input)).ready, false);
+  const extraText = createNativeReadinessProbe(async () => ({ replyText: `Here is the report:\n\`\`\`json\n${report}\n\`\`\`` }), () => 'thread', verifier);
+  await assert.rejects(extraText(input));
 });
 
 test('a bot must invoke the bound workspace check before source access can pass', async () => {

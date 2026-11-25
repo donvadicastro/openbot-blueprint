@@ -64,6 +64,7 @@ test('default Compose provisions custom registration and separate model environm
     KEY_ENCRYPTION_KEY: Buffer.alloc(32, 1).toString('base64'),
     COMPUTER_TOKEN: 'a'.repeat(40), SUPERVISOR_TOKEN: 'b'.repeat(40),
     AGENT_TOOL_TOKEN: 'c'.repeat(40), WORKER_SHARED_SECRET: 'd'.repeat(40), MANAGED_AGENT_TOKEN: 'e'.repeat(40),
+    WORKFLOW_POSTGRES_PASSWORD: 'f'.repeat(40), WORKFLOW_ACTIVITY_TOKEN: 'g'.repeat(40), WORKFLOW_ENGINE_TOKEN: 'h'.repeat(40),
     BOT_PROVIDER: 'openai', BOT_MODEL: 'platform-model', OPENAI_API_KEY: 'synthetic-platform-key',
     BLUEPRINT_DIR: './blueprints/software-development-custom-bot',
     MANAGED_AGENT_AG_UI_URL: 'http://implementer-bot:4201/ag-ui', AGENT_ENDPOINT_ALLOWED_HOSTS: 'implementer-bot:4201',

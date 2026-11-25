@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { ProductError, requireProject, requirePublisher } from "./access.js";
+import { ProductError, requireBotProject, requireProject, requirePublisher } from "./access.js";
 import type { ProductActor, ProductPermission, ProductQuery, Project } from "./access.js";
 
 export interface ProductDatabase extends ProductQuery {
@@ -25,6 +25,12 @@ export type ArtifactRevision = {
   payload: Record<string, JsonValue>;
   evidence: Record<string, JsonValue>;
 };
+export type ArtifactRoleGrant = { id: string; owner: string; producers: string[]; consumers: string[] };
+
+export function roleMayReadArtifact(type: ArtifactRoleGrant | undefined, role: string) {
+  return !!type && (type.owner === role || (Array.isArray(type.producers) && type.producers.includes(role)) ||
+    (Array.isArray(type.consumers) && type.consumers.includes(role)));
+}
 
 function stableJson(value: JsonValue): string {
   if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
@@ -49,6 +55,30 @@ function replay<T>(row: { digest: string; response: T } | undefined, digest: str
     throw new ProductError(409, "idempotency_conflict", "The idempotency key was already used with another payload.");
   }
   return row;
+}
+
+/** Internal: the caller must authorize and lock the project and assignment first. */
+export async function resolveAssignedArtifact(transaction: ProductQuery, actor: ProductActor, project: Project,
+  assignmentId: string, nativeBotId: string, artifactId: string, revisionId?: string): Promise<ArtifactRevision> {
+  const [revision] = await transaction.unsafe<ArtifactRevision & { roleKey: string; definition: {
+    business?: { artifactTypes?: ArtifactRoleGrant[] };
+  } }>(`
+    select r.id, a.id as "artifactId", a.type_key as "typeKey", a.source, a.status,
+      r.digest, r.payload, r.evidence, s.role_key as "roleKey", b.definition
+    from bp_artifacts a
+    join bp_artifact_revisions r on r.project_id=a.project_id and r.artifact_id=a.id
+    join bp_assignments s on s.project_id=a.project_id and s.id=$3 and s.native_bot_id=$4
+    join bp_blueprint_versions b on b.blueprint_key=$6 and b.version=$7
+    where a.project_id=$1 and a.id=$2 and (a.allowed_user_ids is null or $5=any(a.allowed_user_ids))
+      and ($8::text is null or r.id=$8)
+    order by r.created_at desc,r.id desc limit 1 for share of a,s
+  `, [project.id, artifactId, assignmentId, nativeBotId, actor.id, project.blueprintKey, project.blueprintVersion, revisionId ?? null]);
+  const type = revision?.definition?.business?.artifactTypes?.find(item => item.id === revision.typeKey);
+  if (!revision || !roleMayReadArtifact(type, revision.roleKey)) {
+    throw new ProductError(404, "artifact_not_found", "Artifact not found.");
+  }
+  const { roleKey: _roleKey, definition: _definition, ...visible } = revision;
+  return visible;
 }
 
 export function createProductStore(database: ProductDatabase) {
@@ -141,11 +171,29 @@ export function createProductStore(database: ProductDatabase) {
     },
 
     listProjects(actor: ProductActor) {
-      return database.unsafe<Project>(`
+      return database.unsafe<Project & { teamLeadChannelId: string | null }>(`
         select p.id, p.installation_id as "installationId", p.blueprint_key as "blueprintKey",
-          p.blueprint_version as "blueprintVersion", p.name, p.state, p.revision,
-          p.created_by as "createdBy", m.permissions
+          p.blueprint_version as "blueprintVersion", p.name,
+          case when p.state='Operational' and (
+            (select count(*) from bp_assignments a where a.project_id=p.id) <>
+              jsonb_array_length(coalesce(b.definition#>'{business,roles}','[]'::jsonb))
+            or exists (select 1 from jsonb_array_elements(coalesce(b.definition#>'{business,roles}','[]'::jsonb)) role
+              where not exists (select 1 from bp_assignments a join bp_readiness r on r.project_id=a.project_id and r.assignment_id=a.id
+                where a.project_id=p.id and a.role_key=role->>'id' and r.status='Ready' and r.assignment_revision=a.revision))
+            or exists (select 1 from jsonb_array_elements_text(coalesce(b.definition#>'{business,initialization,requiredArtifacts}','[]'::jsonb)) needed(type_key)
+              where not exists (select 1 from bp_artifacts a where a.project_id=p.id and a.type_key=needed.type_key and a.status='supplied'))
+            or (b.definition#>>'{business,initialization,workspace,kind}'='vm' and not exists
+              (select 1 from bp_project_vms vm where vm.project_id=p.id and vm.state='Ready' and vm.provider_id is not null and vm.source_revision is not null))
+          ) then 'Initializing' else p.state end as state, p.revision,
+          p.created_by as "createdBy", m.permissions,
+          (select c.native_channel_id from bp_conversations c
+           join bp_assignments a on a.project_id=c.project_id and a.id=c.team_lead_assignment_id and a.role_key=b.definition#>>'{business,teamLeadRole}'
+           join channel_agents ca on ca.channel_id=c.native_channel_id and ca.agent_id=a.native_bot_id
+           join channel_memberships cm on cm.channel_id=c.native_channel_id and cm.user_id=$1
+           join channels ch on ch.id=c.native_channel_id and ch.deleted_at is null
+           where c.project_id=p.id order by c.created_at,c.native_channel_id limit 1) as "teamLeadChannelId"
         from bp_projects p join bp_memberships m on m.project_id = p.id
+        join bp_blueprint_versions b on b.blueprint_key=p.blueprint_key and b.version=p.blueprint_version
         where m.user_id = $1 and 'read' = any(m.permissions)
         order by p.created_at desc, p.id
       `, [actor.id]);
@@ -158,12 +206,16 @@ export function createProductStore(database: ProductDatabase) {
       idempotencyKey: string,
       payload: JsonValue,
       action: (transaction: ProductQuery, project: Project) => Promise<T>,
+      authorize?: (transaction: ProductQuery, project: Project) => Promise<void>,
     ): Promise<T> {
       mutationKey(idempotencyKey);
       const digest = contentDigest(payload);
       return database.begin(async transaction => {
         await transaction.unsafe("select pg_advisory_xact_lock(hashtextextended($1, 0))", [JSON.stringify([projectId, actor.id, idempotencyKey])]);
         const project = await requireProject(transaction, actor, projectId, permission);
+        // Replays are reads of the previous result, so nested-resource access must
+        // be rechecked even when the mutation itself will not run again.
+        if (authorize) await authorize(transaction, project);
         const [row] = await transaction.unsafe<{ digest: string; response: T }>(`
           select digest, response from bp_mutations where project_id = $1 and actor_id = $2 and mutation_key = $3
         `, [projectId, actor.id, idempotencyKey]);
@@ -193,6 +245,14 @@ export function createProductStore(database: ProductDatabase) {
       `, [projectId, artifactId, actor.id, revisionId ?? null]);
       if (!revision) throw new ProductError(404, "artifact_not_found", "Artifact not found.");
       return revision;
+    },
+
+    /** Call only with identities bound by the authenticated native bot turn. */
+    async resolveBotArtifact(actor: ProductActor, channelId: string, nativeBotId: string, artifactId: string, revisionId?: string, trustedAssignmentId?: string) {
+      return database.begin(async transaction => {
+        const { project, assignmentId } = await requireBotProject(transaction, actor, channelId, nativeBotId, "read", trustedAssignmentId);
+        return resolveAssignedArtifact(transaction, actor, project, assignmentId, nativeBotId, artifactId, revisionId);
+      });
     },
   };
 }

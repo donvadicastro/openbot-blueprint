@@ -18,6 +18,10 @@ test('the activity adapter uses its configured private endpoint and validates ou
     assert.equal(calls[0].url, 'http://private-service:3001/internal/workflow-activities/reconcile');
     assert.equal(calls[0].options.redirect, 'error');
     await assert.rejects(activities.executePhase(request), /Invalid/);
+    globalThis.fetch = async () => ({ ok: true, json: async () => ({ kind: 'advance', nextPhase: 'start', delaySeconds: 2 }) });
+    assert.deepEqual(await activities.executePhase(request), { kind: 'advance', nextPhase: 'start', delaySeconds: 2 });
+    globalThis.fetch = async () => ({ ok: true, json: async () => ({ kind: 'advance', nextPhase: 'start', delaySeconds: -1 }) });
+    await assert.rejects(activities.executePhase(request), /Invalid/);
     globalThis.fetch = async () => ({ ok: false });
     await assert.rejects(activities.reconcilePhase(request), /not confirmed/);
   } finally { globalThis.fetch = savedFetch; }

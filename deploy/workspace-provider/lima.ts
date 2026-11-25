@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, randomUUID, X509Certificate } from "node:crypto";
 import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { mkdtemp, writeFile, rm, mkdir, open, readFile, rename } from "node:fs/promises";
@@ -9,6 +9,7 @@ import type { BusinessWorkspace } from "../../src/types.js";
 import { captureSource } from "./source-import.js";
 import { registryTransaction } from "../../src/file-lock.js";
 import { guestIsolationSetup, guestIsolationVerify, guestProjectAccess } from "./guest-isolation.js";
+import { guestQaAction } from "./qa-sandbox.js";
 const execute = promisify(execFile);
 
 export class LimaPathError extends Error {
@@ -55,7 +56,8 @@ export class LimaWorkspaceProvider {
     try {
       await this.command(["shell", id, "--", "true"]);
       const isolated = await this.verifyIsolation(id);
-      return { id, ready: isolated, status: isolated ? row.status : "IsolationUnverified", isolated };
+      return { id, ready: isolated, status: isolated ? row.status : "IsolationUnverified", isolated,
+        ...(isolated ? { qaSandbox: 'git-readonly-v1' } : {}) };
     } catch {
       return { id, ready: false, status: "Unreachable" };
     }
@@ -68,6 +70,33 @@ export class LimaWorkspaceProvider {
       const [revision, state] = lines;
       if (lines.length !== 3 || lines[2] !== "" || !["present", "missing"].includes(state) || (revision && !/^[a-f0-9]{40,64}$/.test(revision))) throw new Error("The guest source state is invalid.");
       return { revision: revision || null, hasProject: state === "present" };
+    }, 300000);
+  }
+  /** Install only a public, self-signed CA in one guest. Egress remains disabled. */
+  async installDependencyAuthority(id: string, certificate: Buffer) {
+    if (!/^obot-[a-f0-9]{24}$/.test(id) || !Buffer.isBuffer(certificate) || certificate.length > 8192) throw new Error('Invalid dependency authority.');
+    const pem = certificate.toString('utf8');
+    if (!/^-----BEGIN CERTIFICATE-----\r?\n(?:[A-Za-z0-9+/=]+\r?\n)+-----END CERTIFICATE-----\r?\n?$/.test(pem)) throw new Error('Invalid dependency authority.');
+    let authority: X509Certificate;
+    try { authority = new X509Certificate(certificate); } catch { throw new Error('Invalid dependency authority.'); }
+    const from = Date.parse(authority.validFrom), until = Date.parse(authority.validTo);
+    if (!authority.ca || !authority.checkIssued(authority) || !authority.verify(authority.publicKey) ||
+        !Number.isFinite(from) || !Number.isFinite(until) || from > Date.now() || until <= Date.now()) throw new Error('Invalid dependency authority.');
+    const digest = createHash('sha256').update(authority.raw).digest('hex');
+    return registryTransaction(this.lockDirectory(id), async () => {
+      if (!(await this.check(id)).ready) throw new Error('The project VM is unavailable.');
+      const script = `set -eu
+tmp=$(mktemp)
+trap 'rm -f "$tmp"' EXIT
+printf '%s' "$1" | base64 -d > "$tmp"
+test "$(openssl x509 -in "$tmp" -outform DER | sha256sum | cut -d' ' -f1)" = "$2"
+install -o root -g root -m 0644 "$tmp" /usr/local/share/ca-certificates/openbot-project-egress.crt
+update-ca-certificates >/dev/null
+test -f /etc/ssl/certs/ca-certificates.crt
+openssl verify -CAfile /etc/ssl/certs/ca-certificates.crt "$tmp" >/dev/null
+test "$(stat -c '%u:%g:%a' /usr/local/share/ca-certificates/openbot-project-egress.crt)" = 0:0:644`;
+      await this.command(['shell', id, '--', 'sudo', '-n', 'sh', '-eu', '-c', script, 'openbot-trust', certificate.toString('base64'), digest]);
+      return { installed: true, fingerprint: digest };
     }, 300000);
   }
   async ensure(installation: string, project: string, profile: BusinessWorkspace) {
@@ -96,7 +125,8 @@ export class LimaWorkspaceProvider {
         images: [{ location: profile.image, arch: process.arch === "arm64" ? "aarch64" : "x86_64", digest: profile.imageDigest }],
         cpus: profile.cpus, memory: profile.memoryMb + "MiB", disk: profile.diskGb + "GiB",
         mounts: [], containerd: { system: false, user: false },
-        portForwards: [{ guestPortRange: [1, 65535], ignore: true }],
+        // Cover loopback-bound guest services as well as wildcard listeners.
+        portForwards: [{ guestIP: '0.0.0.0', guestIPMustBeZero: false, proto: 'any', guestPortRange: [1, 65535], ignore: true }],
         hostResolver: { enabled: false },
       }));
       await this.command(["start", "--tty=false", "--plain", "--name=" + id, config]);
@@ -149,10 +179,11 @@ export class LimaWorkspaceProvider {
       return { status: "completed", exitCode: record.exitCode, stdout: record.stdout, stderr: record.stderr };
     }, 300000);
   }
-  async runAction(id: string, operationKey: string, argv: string[]) {
+  async runAction(id: string, operationKey: string, argv: string[], qa?: { revision: string }) {
     const file = this.actionFile(id, operationKey);
     if (!Array.isArray(argv) || argv.length < 1 || argv.length > 128 || argv.some(value => typeof value !== "string" || value.includes("\0") || value.length > 8192) || !argv[0]) throw new Error("Invalid action arguments.");
-    const digest = createHash("sha256").update(JSON.stringify(argv)).digest("hex");
+    if (qa && (typeof qa.revision !== 'string' || !/^[a-f0-9]{40,64}$/.test(qa.revision))) throw new Error('Invalid QA candidate revision.');
+    const digest = createHash("sha256").update(JSON.stringify(qa ? { argv, qa } : argv)).digest("hex");
     return registryTransaction(this.lockDirectory(id), async () => {
       if (!await this.verifyIsolation(id)) throw new Error("Project network isolation is unavailable.");
       const previous = await this.readAction(file);
@@ -166,7 +197,7 @@ export class LimaWorkspaceProvider {
       try {
         const marker = "openbot-exit-" + randomUUID() + ":";
         const receipt = createHash("sha256").update(operationKey).digest("hex");
-        const script = `cd "$HOME/project" || exit 125
+        const script = qa ? guestQaAction : `cd "$HOME/project" || exit 125
 marker="$1"; receipt="$2"; digest="$3"; shift 3
 base="$HOME/.openbot/actions"; dir="$base/$receipt"; tmp="$base/$receipt.pending"
 umask 077
@@ -174,7 +205,7 @@ mkdir -p "$base" || exit 125
 test ! -e "$dir" && test ! -e "$tmp" || exit 125
 mkdir "$tmp" || exit 125
 printf "%s" "$digest" >"$tmp/digest" || exit 125
-sudo -n ip netns exec openbot-project unshare --mount --propagation private sh -c 'mount -t tmpfs -o nosuid,nodev,mode=755 tmpfs /run || exit 125; exec runuser -u openbot-project -- "$@"' openbot-exec "$@" >"$tmp/stdout" 2>"$tmp/stderr"
+sudo -n ip netns exec openbot-project unshare --mount --propagation private sh -c 'mount -t tmpfs -o nosuid,nodev,mode=755 tmpfs /run || exit 125; exec runuser -u openbot-project -- setpriv --no-new-privs -- "$@"' openbot-exec "$@" >"$tmp/stdout" 2>"$tmp/stderr"
 code=$?
 printf "%s" "$code" >"$tmp/exit" || exit 125
 mv "$tmp" "$dir" || exit 125
@@ -182,7 +213,7 @@ sync || exit 125
 cat "$dir/stdout"
 cat "$dir/stderr" >&2
 printf "\\n%s%s\\n" "$marker" "$code" >&2`;
-        const output = await this.command(["shell", id, "--", "sh", "-c", script, "openbot-action", marker, receipt, digest, ...argv]);
+        const output = await this.command(["shell", id, "--", "sh", "-c", script, "openbot-action", marker, receipt, digest, ...(qa ? [qa.revision] : []), ...argv]);
         const index = output.stderr.lastIndexOf("\n" + marker);
         if (index < 0) return { status: "uncertain" };
         const suffix = output.stderr.slice(index + marker.length + 1);

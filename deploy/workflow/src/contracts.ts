@@ -18,7 +18,7 @@ export interface PhaseRequest extends RunIdentity {
 }
 
 export type PhaseOutcome =
-  | { kind: 'advance'; nextPhase: string }
+  | { kind: 'advance'; nextPhase: string; delaySeconds?: number }
   | { kind: 'wait'; decisionId: string; question: string }
   | { kind: 'complete'; result: string }
   | { kind: 'blocked'; reason: string }

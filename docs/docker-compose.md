@@ -25,6 +25,7 @@ Edit `.env` locally and fill the required native settings before starting servic
 | `KEY_ENCRYPTION_KEY` | A non-example, base64-encoded 32-byte encryption key |
 | `COMPUTER_TOKEN`, `SUPERVISOR_TOKEN`, `AGENT_TOOL_TOKEN`, `WORKER_SHARED_SECRET` | Distinct random internal credentials, each at least 32 characters |
 | `MANAGED_AGENT_TOKEN` | Shared native server-to-implementer credential; use a random value of at least 32 characters |
+| `WORKFLOW_POSTGRES_PASSWORD`, `WORKFLOW_ACTIVITY_TOKEN`, `WORKFLOW_ENGINE_TOKEN` | Distinct random internal workflow credentials, each at least 32 characters and different from the native service tokens |
 | Native OAuth settings | Required when using `OPENBOT_SINGLE_USER=false` |
 
 Fill `.env.implementer` separately with the custom service's native `BOT_PROVIDER`, `BOT_MODEL` and selected provider key. The file is required by the root Compose service and is not automatically created. Its model can differ from the built-in coworkers' shared model. Existing environment files are preserved by `cp -n`; merge the defaults from the templates when updating an existing deployment.
@@ -74,13 +75,13 @@ npm ci
 npm run blueprint -- provision software-development --env-file .env --app-port 3010
 ```
 
-The command records one installation identity per blueprint key and reports the existing installation on repeat. A different blueprint can use a separate environment file and application port. The host-side VM provider must also be configured for that installation as described below.
+The command records one installation identity per blueprint key and reports the existing installation on repeat. The root Compose file includes the private Temporal workflow services and requires `WORKFLOW_POSTGRES_PASSWORD`, `WORKFLOW_ACTIVITY_TOKEN`, and `WORKFLOW_ENGINE_TOKEN` to be values of at least 32 characters, distinct from one another and the native service tokens. Provisioning waits up to five minutes for Compose services to start and health checks to pass, including the private workflow gateway; this does not prove a project workflow has completed. A different blueprint can use a separate environment file and application port. The host-side VM provider must also be configured for that installation as described below. Workflow execution remains under verification; see the [workflow guide](../deploy/workflow/README.md).
 
 ```sh
 # Checks required Compose substitutions without printing the rendered environment.
 docker compose config --quiet
 
-# Build images and start the native platform.
+# Build images and start OpenBot, its durable workflow engine, and registered bots.
 docker compose up --build -d
 
 # Inspect startup and initialization results.
@@ -95,7 +96,7 @@ Open [http://localhost:3010](http://localhost:3010) when `server` is healthy. Th
 
 The new business-project initialization uses a host-side Lima provider in addition to Compose. Project commands run as an unprivileged guest user in a private network namespace with loopback only; outbound network access is denied by default. Readiness and workspace actions remain blocked unless the provider verifies that isolation. The existing project interface remains available for blueprints without a business definition.
 
-For development on the verified Apple Silicon host, install Lima and Node.js 22 or later. Set `PROJECTS_HOST_DIR` in `.env` to an absolute directory containing the folders users may select. Set `WORKSPACE_PROVIDER_TOKEN` to a unique random value of at least 32 characters, and set `WORKSPACE_PROVIDER_INSTALLATION_ID` to the Compose project name (default `openbot-blueprint`). Start the host provider in a separate terminal from the repository root:
+For development on the verified Apple Silicon host, install Lima, Node.js 22 or later, and Python 3. Python is used for directory-handle-relative source intake so folder snapshots do not follow a path swapped to an outside symlink during traversal. Set `PROJECTS_HOST_DIR` in `.env` to an absolute directory containing the folders users may select. Set `WORKSPACE_PROVIDER_TOKEN` to a unique random value of at least 32 characters, and set `WORKSPACE_PROVIDER_INSTALLATION_ID` to the Compose project name (default `openbot-blueprint`). Start the host provider in a separate terminal from the repository root:
 
 ```sh
 npm ci
@@ -109,9 +110,23 @@ node dist/deploy/workspace-provider/server.js
 
 Keep that process running while initializing projects. The app reaches its loopback listener at `host.docker.internal:4511` by default; the provider creates a persistent guest for each project and imports a copy of the selected source. Restarting the provider does not delete the VMs. VM networking and Linux support still need their full isolation verification before production use. The provider uses the same token as the server; do not expose its listener publicly.
 
+### Optional SWE workspace readiness pilot
+
+To provision a disposable sample project without waiting for a person to select a folder in the UI, create a self-contained sample under `PROJECTS_HOST_DIR` and run the optional provisioner. It creates one project with the five software-development roles (Team Lead, Product Manager, Engineer, QA, Release), supplies source plus local CI, test-environment, requirements and documentation references, initializes its persistent VM, and requests the blueprint's real per-role readiness checks. It does not create readiness records or run the feature-delivery/QA workflow. A project reaches Operational only when the VM, source and all five current bot reports pass.
+
+From the repository root, with the host provider already running and the Compose server healthy:
+
+```sh
+mkdir -p projects/openbot-workspace-readiness-smoke
+cp -R examples/swe-readiness-smoke/. projects/openbot-workspace-readiness-smoke/
+npm run provision:workspace -- --source /projects/openbot-workspace-readiness-smoke --name 'SWE Workspace Readiness Smoke'
+```
+
+The provisioner is idempotent for the same project name and source path. It prints the project ID, state, role statuses and blockers, and exits with status 2 when the project remains Initializing. This supports setup checks; it is not a substitute for the timed owner trial or full product workflow acceptance.
+
 Keep `LIMA_HOME` stable across restarts: changing it points the provider at a different collection of VM disks. When the source folder changes, the previous guest workspace is retained under `~/.openbot/backups/` inside that VM. If an action loses its connection, retrying its same operation key reconciles a completed guest receipt; when no receipt exists, the result remains uncertain and is not automatically repeated. See [VM provider verification and recovery](../deploy/workspace-provider/README.md).
 
-The pinned native OpenBot worker does not provide the required durable business workflow and decision-wait behavior. The plan selects a private, self-hosted Temporal service and worker as the fallback; that execution path is not implemented yet. The existing OpenBot routines worker continues to serve native routines. See [the implementation decisions](../specs/001-business-operations-platform/research.md) and [remaining tasks](../specs/001-business-operations-platform/tasks.md).
+The pinned native OpenBot worker does not provide the required durable business workflow and decision-wait behavior. The root Compose stack therefore includes a private Temporal service and worker, while the native routines worker continues to serve native routines. Both `docker compose up` and blueprint provisioning start the same durable-workflow stack. Workflow state uses the persistent `workflow-postgres-data` volume. See [the implementation decisions](../specs/001-business-operations-platform/research.md) and [remaining tasks](../specs/001-business-operations-platform/tasks.md).
 
 `docker compose config --quiet` checks Compose substitutions and syntax. The `blueprint-init` container performs the fuller provider, Intelligence, database, encryption, token, identity and blueprint checks. If it fails, dependent platform services do not start. Missing settings are reported by variable name without printing their values. Presence and syntax checks do not contact providers or prove that credentials are valid.
 
@@ -127,6 +142,9 @@ Avoid sharing output from plain `docker compose config`: its rendered environmen
 | `server` | Serve OpenBot's app/API and load the generated coworkers |
 | `implementer-bot` | Run the registered LangGraph implementer with independent native model settings |
 | `worker` | Run OpenBot's native routines worker |
+| `workflow-postgres` | Persist the private Temporal workflow history |
+| `temporal` | Run the durable workflow engine without publishing a host port |
+| `workflow-worker` | Schedule project workflow phases and connect to the authenticated OpenBot activity endpoint |
 | `agent-computer` | Provide the native shared browser/workspace computer |
 | `supervisor` | Provision native person/Bot computer containers on demand |
 

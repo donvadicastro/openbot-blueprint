@@ -26,7 +26,11 @@ test('the disposable staging target persists one effect when a receipt is lost',
     fixture = stagingFixture(join(directory, 'staging.sqlite'), token);
     await new Promise((resolve, reject) => fixture.server.once('error', reject).listen(0, '127.0.0.1', resolve));
     target = createStagingTarget(`http://127.0.0.1:${fixture.server.address().port}`, token);
-    assert.equal((await target.lookup(operation)).status, 'confirmed');
+    const recovered = await target.lookup(operation);
+    assert.equal(recovered.status, 'confirmed');
+    const verification = await target.verify(recovered.receipt);
+    assert.equal(verification.status, 'verified');
+    assert.equal((await target.verify({ ...recovered.receipt, target: 'different' })).status, 'uncertain');
     assert.equal((await target.lookup({ ...operation, projectId: 'other' })).status, 'uncertain');
     assert.equal(fixture.count(), 1);
   } finally {

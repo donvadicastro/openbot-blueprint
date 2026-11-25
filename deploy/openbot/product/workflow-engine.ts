@@ -1,11 +1,13 @@
+import { createHash } from 'node:crypto';
 import { ProductError } from './access.js';
 import type { ProductModule } from './module.js';
 import { contentDigest, type JsonValue } from './store.js';
-import { workspaceCall } from './workspace.js';
+import { requireReadyReports, requireReadyWorkspace } from './readiness-gate.js';
 import type { Blueprint } from './contract/types.js';
 
 type PendingRun = {
   projectId: string; runId: string; occurrenceId: string; attempt: number; installationId: string;
+  phaseKey: string; actionId: string; assignmentRole: string; assignmentBot: string;
   planDigest: string; plan: { workflow?: { startPhase?: unknown; phases?: unknown } }; definition: Blueprint;
 };
 
@@ -13,13 +15,18 @@ type PendingRun = {
 export async function dispatchPendingWorkflow(module: ProductModule) {
   const endpoint = process.env.WORKFLOW_ENGINE_URL, token = process.env.WORKFLOW_ENGINE_TOKEN;
   if (!endpoint || !token || token.length < 32) throw new ProductError(409, 'workflow_unconfigured', 'The workflow engine is not configured.');
-  return module.database.begin(async transaction => {
+  let failed: { projectId: string; runId: string; occurrenceId: string; attempt: number } | undefined;
+  try {
+    return await module.database.begin(async transaction => {
     const [run] = await transaction.unsafe<PendingRun>(`
       select d.project_id as "projectId", d.run_id as "runId", d.occurrence_id as "occurrenceId",
-        d.attempt, p.installation_id as "installationId", r.plan_digest as "planDigest", r.plan, b.definition
+        d.attempt, p.installation_id as "installationId", r.plan_digest as "planDigest", r.plan, b.definition,
+        o.phase_key as "phaseKey", o.action_key as "actionId",
+        a.role_key as "assignmentRole", a.native_bot_id as "assignmentBot"
       from bp_dispatch_intents d
       join bp_workflow_runs r on r.project_id=d.project_id and r.id=d.run_id
       join bp_phase_occurrences o on o.project_id=d.project_id and o.run_id=d.run_id and o.id=d.occurrence_id
+      join bp_assignments a on a.project_id=o.project_id and a.id=o.assignment_id
       join bp_projects p on p.id=d.project_id
       join bp_blueprint_versions b on b.blueprint_key=p.blueprint_key and b.version=p.blueprint_version
       join bp_work_items w on w.project_id=r.project_id and w.id=r.work_item_id
@@ -27,12 +34,13 @@ export async function dispatchPendingWorkflow(module: ProductModule) {
       join bp_conversations c on c.project_id=p.id and c.native_channel_id=w.native_channel_id
       join channel_memberships cm on cm.channel_id=c.native_channel_id and cm.user_id=w.requested_by
       join channels ch on ch.id=c.native_channel_id and ch.deleted_at is null
-      where d.state='Pending' and d.attempt=1 and o.occurrence=1 and r.state='Pending'
+      where d.state='Pending' and d.attempt=1 and o.occurrence=1 and r.state='Pending' and d.next_attempt_at<=now()
         and p.state='Operational' and 'read'=any(m.permissions) and 'work'=any(m.permissions)
       order by d.created_at, d.project_id, d.run_id
       limit 1 for update of d skip locked
     `);
     if (!run) return false;
+    failed = { projectId: run.projectId, runId: run.runId, occurrenceId: run.occurrenceId, attempt: run.attempt };
     // Hold the same project and membership locks used by archive and grant changes until dispatch completes.
     await transaction.unsafe(`select p.id from bp_projects p
       join bp_workflow_runs r on r.project_id=p.id and r.id=$2
@@ -47,23 +55,15 @@ export async function dispatchPendingWorkflow(module: ProductModule) {
     });
     const business = run.definition?.business;
     if (!business) throw new ProductError(409, 'blueprint_unavailable', 'The project blueprint is unavailable.');
-    const reports = await transaction.unsafe<{ roleKey: string; revision: number; reportedRevision: number; status: string }>(`
-      select a.role_key as "roleKey",a.revision,r.assignment_revision as "reportedRevision",r.status
-      from bp_assignments a join bp_readiness r on r.project_id=a.project_id and r.assignment_id=a.id
-      where a.project_id=$1 for share of a,r
-    `, [run.projectId]);
-    if (reports.length !== business.roles.length || business.roles.some(role => !reports.some(report =>
-      report.roleKey === role.id && report.revision === report.reportedRevision && report.status === 'Ready'))) {
-      throw new ProductError(409, 'readiness_stale', 'The project team must complete current readiness checks before work starts.');
+    const phase = Array.isArray(run.plan?.workflow?.phases)
+      ? (run.plan.workflow.phases as { id?: unknown; action?: unknown }[]).find(item => item.id === run.phaseKey) : undefined;
+    const action = business.actions.find(item => item.id === run.actionId);
+    const role = business.roles.find(item => item.id === run.assignmentRole);
+    if (!phase || !action || !role || phase.action !== action.id || action.role !== role.id || role.agentId !== run.assignmentBot) {
+      throw new ProductError(409, 'assignment_unavailable', 'The assigned specialist no longer matches the starting phase.');
     }
-    if (business.initialization.workspace.kind === 'vm') {
-      const [vm] = await transaction.unsafe<{ providerId: string | null; state: string }>(
-        'select provider_id as "providerId",state from bp_project_vms where project_id=$1 for share', [run.projectId],
-      );
-      if (!vm?.providerId || vm.state !== 'Ready') throw new ProductError(409, 'workspace_unavailable', 'The project workspace is unavailable.');
-      const health = await workspaceCall('check', { installationId: run.installationId, projectId: run.projectId });
-      if (!health.ready || !health.isolated || health.id !== vm.providerId) throw new ProductError(409, 'workspace_unavailable', 'The project workspace or its isolation is unavailable.');
-    }
+    await requireReadyReports(transaction, run.projectId, business.roles);
+    await requireReadyWorkspace(transaction, { id: run.projectId, installationId: run.installationId }, business);
     if (!run.plan || typeof run.plan !== 'object' || contentDigest(run.plan as unknown as JsonValue) !== run.planDigest) {
       throw new ProductError(409, 'workflow_plan_invalid', 'The pinned workflow plan could not be verified.');
     }
@@ -81,9 +81,23 @@ export async function dispatchPendingWorkflow(module: ProductModule) {
     });
     if (!response.ok) throw new ProductError(409, 'workflow_unavailable', 'The workflow engine did not confirm dispatch.');
     const result = await response.json() as { workflowId?: unknown; existing?: unknown };
-    if (typeof result.workflowId !== 'string' || typeof result.existing !== 'boolean') throw new ProductError(409, 'workflow_unavailable', 'The workflow engine returned an invalid response.');
+    const expectedId = 'openbot-' + createHash('sha256').update(JSON.stringify([run.installationId, run.projectId, run.runId])).digest('hex');
+    if (result.workflowId !== expectedId || typeof result.existing !== 'boolean') throw new ProductError(409, 'workflow_unavailable', 'The workflow engine returned an invalid response.');
     await transaction.unsafe("update bp_dispatch_intents set state='Dispatched',updated_at=now() where project_id=$1 and run_id=$2 and occurrence_id=$3 and attempt=$4 and state='Pending'", [run.projectId, run.runId, run.occurrenceId, run.attempt]);
     await transaction.unsafe("update bp_workflow_runs set state='Running',revision=revision+1,updated_at=now() where project_id=$1 and id=$2 and state='Pending'", [run.projectId, run.runId]);
     return true;
-  });
+    });
+  } catch (error) {
+    // The dispatch transaction rolled back. Record backoff separately so one
+    // blocked project cannot starve other pending initial dispatches.
+    if (failed) {
+      try {
+        await module.database.unsafe(`update bp_dispatch_intents
+          set dispatch_failures=dispatch_failures+1,next_attempt_at=now()+interval '30 seconds',updated_at=now()
+          where project_id=$1 and run_id=$2 and occurrence_id=$3 and attempt=$4 and state='Pending'`,
+          [failed.projectId, failed.runId, failed.occurrenceId, failed.attempt]);
+      } catch { /* preserve the dispatch error */ }
+    }
+    throw error;
+  }
 }

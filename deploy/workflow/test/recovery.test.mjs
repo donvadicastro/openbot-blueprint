@@ -62,3 +62,41 @@ test('decision waits and uncertain effects survive worker replacement', { timeou
     await environment.teardown();
   }
 });
+
+test('a retry delay survives worker replacement without repeating the failed attempt', { timeout: 120000 }, async () => {
+  const environment = await TestWorkflowEnvironment.createTimeSkipping();
+  const taskQueue = `blueprint-retry-${randomUUID()}`;
+  const requests = [];
+  const activities = {
+    async executePhase(request) {
+      requests.push(request.operationKey);
+      return request.occurrence === 1 ? { kind: 'advance', nextPhase: 'start', delaySeconds: 60 } : { kind: 'complete', result: 'retried' };
+    },
+    async reconcilePhase() { throw new Error('Unexpected reconciliation'); },
+  };
+  const makeWorker = () => Worker.create({ connection: environment.nativeConnection, taskQueue, workflowsPath, activities, maxCachedWorkflows: 0 });
+  let worker = await makeWorker();
+  let running = worker.run();
+  try {
+    const handle = await environment.client.workflow.start('businessWorkflow', { workflowId: `retry-${randomUUID()}`, taskQueue, args: [input('retry-run')] });
+    let snapshot;
+    for (let i = 0; i < 200; i++) {
+      snapshot = await handle.query('snapshot').catch(() => null);
+      if (snapshot?.occurrence === 2) break;
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    assert.equal(snapshot?.occurrence, 2);
+    assert.deepEqual(requests, ['retry-run:1']);
+    worker.shutdown();
+    await running;
+    await environment.sleep(60000);
+    worker = await makeWorker();
+    running = worker.run();
+    assert.equal((await handle.result()).result, 'retried');
+    assert.deepEqual(requests, ['retry-run:1', 'retry-run:2']);
+  } finally {
+    worker.shutdown();
+    await running;
+    await environment.teardown();
+  }
+});

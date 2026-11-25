@@ -93,9 +93,9 @@ test('OpenBot export emits required tenant files, embeds prompts and explains ru
     assert.equal(exported.intake.form, true);
     assert.ok(agents.some(agent => agent.id === exported.entrypoint && agent.name === 'Team Lead'));
     const lead = agents.find(agent => agent.id === exported.entrypoint);
-    assert.match(lead.system_prompt, /project.*intake/);
-    assert.match(lead.system_prompt, /source-access.*assignment/);
-    assert.equal(lead.system_prompt.includes('document-source'), includeOptional);
+    assert.match(lead.system_prompt, /Project role contract/);
+    assert.match(lead.system_prompt, /project source folder/);
+    assert.doesNotMatch(lead.system_prompt, /Delivery Lead|setup form/);
     const { channels } = JSON.parse(await readFile(join(out, 'channels.yaml')));
     assert.deepEqual(channels[0].permitted_agents, agents.map(a => a.id));
     assert.match(await readFile(join(out, 'INTEGRATION.md'), 'utf8'), /Prompts alone do not enforce/);

@@ -27,7 +27,12 @@ test('staging lookup reconciles a lost response and refuses mismatched receipts'
     assert.deepEqual(await target.deploy(operation), { status: 'uncertain' });
     assert.deepEqual(await target.lookup(operation), { status: 'confirmed', receipt: saved });
     assert.equal(committed, 1);
+    globalThis.fetch = async () => ({ ok: true, json: async () => ({ status: 'verified', verification: { ...saved, verificationId: 'check' } }) });
+    assert.deepEqual(await target.verify(saved), { status: 'verified', verificationId: 'check', receipt: saved });
+    globalThis.fetch = async () => ({ ok: true, json: async () => ({ status: 'verified', verification: { ...saved, target: 'other', verificationId: 'check' } }) });
+    assert.deepEqual(await target.verify(saved), { status: 'uncertain' });
     saved = { ...saved, projectId: 'another-project' };
+    globalThis.fetch = async () => ({ ok: true, json: async () => ({ status: 'confirmed', receipt: saved }) });
     assert.deepEqual(await target.lookup(operation), { status: 'uncertain' });
     globalThis.fetch = async () => ({ ok: true, json: async () => ({ status: 'not-found', ...operation }) });
     assert.deepEqual(await target.lookup(operation), { status: 'not-found' });

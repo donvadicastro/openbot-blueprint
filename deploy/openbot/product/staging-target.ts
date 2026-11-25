@@ -2,6 +2,7 @@
 export type StagingOperation = { operationId: string; projectId: string; candidateDigest: string; target: string };
 export type StagingReceipt = StagingOperation & { receiptId: string };
 export type StagingLookup = { status: "confirmed"; receipt: StagingReceipt } | { status: "not-found" } | { status: "uncertain" };
+export type StagingVerification = { status: "verified"; verificationId: string; receipt: StagingReceipt } | { status: "uncertain" };
 
 function validOperation(value: StagingOperation) {
   return [value.operationId, value.projectId, value.candidateDigest, value.target].every(item =>
@@ -38,5 +39,21 @@ export function createStagingTarget(endpoint: string, token: string) {
       return { status: "confirmed", receipt: { ...operation, receiptId: receipt.receiptId } };
     } catch { return { status: "uncertain" }; }
   }
-  return { deploy: (operation: StagingOperation) => call("deploy", operation), lookup: (operation: StagingOperation) => call("lookup", operation) };
+  async function verify(receipt: StagingReceipt): Promise<StagingVerification> {
+    if (!validOperation(receipt) || typeof receipt.receiptId !== 'string' || !receipt.receiptId || receipt.receiptId.length > 300) throw new Error('Invalid staging receipt binding.');
+    try {
+      const response = await fetch(new URL('/internal/staging/verify', base), { method: 'POST', redirect: 'error', signal: AbortSignal.timeout(30000),
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` }, body: JSON.stringify(receipt) });
+      if (!response.ok) return { status: 'uncertain' };
+      const payload: unknown = await response.json();
+      if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return { status: 'uncertain' };
+      const item = payload as Record<string, unknown>, verified = item.verification as Record<string, unknown> | undefined;
+      if (item.status !== 'verified' || !verified || typeof verified !== 'object' || Array.isArray(verified) ||
+          verified.operationId !== receipt.operationId || verified.projectId !== receipt.projectId || verified.candidateDigest !== receipt.candidateDigest ||
+          verified.target !== receipt.target || verified.receiptId !== receipt.receiptId || typeof verified.verificationId !== 'string' ||
+          !verified.verificationId || verified.verificationId.length > 300) return { status: 'uncertain' };
+      return { status: 'verified', verificationId: verified.verificationId, receipt };
+    } catch { return { status: 'uncertain' }; }
+  }
+  return { deploy: (operation: StagingOperation) => call("deploy", operation), lookup: (operation: StagingOperation) => call("lookup", operation), verify };
 }

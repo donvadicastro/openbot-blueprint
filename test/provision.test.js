@@ -17,6 +17,8 @@ async function fixture(t) {
     `COMPUTER_TOKEN=${'a'.repeat(40)}`, `SUPERVISOR_TOKEN=${'b'.repeat(40)}`,
     `AGENT_TOOL_TOKEN=${'c'.repeat(40)}`, `WORKER_SHARED_SECRET=${'d'.repeat(40)}`,
     `MANAGED_AGENT_TOKEN=${'e'.repeat(40)}`, 'OPENBOT_SINGLE_USER=true',
+    `WORKFLOW_POSTGRES_PASSWORD=${'f'.repeat(40)}`, `WORKFLOW_ACTIVITY_TOKEN=${'g'.repeat(40)}`,
+    `WORKFLOW_ENGINE_TOKEN=${'h'.repeat(40)}`,
   ].join('\n'));
   return {directory, envFile, stateDirectory: join(directory, 'registry')};
 }
@@ -43,7 +45,10 @@ test('provision serializes duplicate requests and retains blueprint identity acr
   assert.equal(initial.binding.state, 'ready');
   assert.equal(initial.binding.composeProject, duplicate.binding.composeProject);
   assert.equal(calls[0].args.at(-1), '--quiet');
+  assert.equal(calls[0].args.some(value => value.endsWith('/deploy/workflow/compose.yml')), false);
   assert.equal(calls[1].env.COMPOSE_PROJECT_NAME, initial.binding.composeProject);
+  assert.ok(calls[1].args.includes('--wait'));
+  assert.ok(calls[1].args.includes('--wait-timeout'));
   assert.equal(calls[1].env.COMPUTER_NAMESPACE, initial.binding.composeProject);
   assert.equal(calls[1].env.OPENBOT_ENV_FILE, f.envFile);
   assert.equal(calls[1].env.IMPLEMENTER_ENV_FILE, join(f.directory, '.env.implementer'));
@@ -56,6 +61,49 @@ test('provision serializes duplicate requests and retains blueprint identity acr
   assert.equal(calls.length,2);
   assert.equal(differentVersion.binding.composeProject,initial.binding.composeProject);
   assert.doesNotMatch(await readFile(registryFile,'utf8'), /private-test-secret|private-intelligence-secret|aaaaaaa/);
+});
+
+test('workflow credentials are checked before provisioning without exposing them', async t => {
+  const f = await fixture(t);
+  let called = false;
+  await assert.rejects(provisionOpenBot('software-development', f, async () => { called = true; }, {
+    WORKFLOW_ENGINE_TOKEN: 'short-secret', WORKFLOW_ACTIVITY_TOKEN: 'short-secret', WORKFLOW_POSTGRES_PASSWORD: '',
+  }), error => {
+    assert.match(error.message, /WORKFLOW_POSTGRES_PASSWORD/);
+    assert.match(error.message, /WORKFLOW_ENGINE_TOKEN/);
+    assert.match(error.message, /distinct/);
+    assert.doesNotMatch(error.message, /short-secret/);
+    return true;
+  });
+  assert.equal(called, false);
+});
+
+test('workflow tokens cannot reuse native service credentials', async t => {
+  const f = await fixture(t);
+  let called = false;
+  await assert.rejects(provisionOpenBot('software-development', f, async () => { called = true; }, {
+    WORKFLOW_ENGINE_TOKEN: 'a'.repeat(40),
+  }), error => {
+    assert.match(error.message, /distinct/);
+    assert.doesNotMatch(error.message, /a{40}/);
+    return true;
+  });
+  assert.equal(called, false);
+});
+
+test('provisioning keeps a failed binding when workflow health does not become ready', async t => {
+  const f = await fixture(t);
+  const calls = [];
+  await assert.rejects(provisionOpenBot('software-development', f, async args => {
+    calls.push(args);
+    if (args.includes('up')) throw new Error('health check failed');
+  }, {}), /health check failed/);
+  assert.ok(calls[1].includes('--wait'));
+  const registry = JSON.parse(await readFile(join(f.stateDirectory, 'installations.json'), 'utf8'));
+  assert.equal(registry[0].state, 'failed');
+  const retried = await provisionOpenBot('software-development', f, async () => {}, {});
+  assert.equal(retried.binding.composeProject, registry[0].composeProject);
+  assert.equal(retried.binding.state, 'ready');
 });
 
 test('different blueprints reserve different ports and failed provisioning retries the original binding', async t => {

@@ -57,7 +57,7 @@ test('Lima discovery distinguishes a missing VM from a provider failure', async 
   await chmod(binary, 0o755);
   const provider = new LimaWorkspaceProvider(binary, join(dir, 'instances'));
   assert.deepEqual(await provider.check('missing'), { id: 'missing', ready: false, status: 'Missing' });
-  assert.deepEqual(await provider.check('other'), { id: 'other', ready: true, status: 'Running', isolated: true });
+  assert.deepEqual(await provider.check('other'), { id: 'other', ready: true, status: 'Running', isolated: true, qaSandbox: 'git-readonly-v1' });
   await assert.rejects(provider.check('../other'), /Invalid workspace identifier/);
   await writeFile(binary, '#!/bin/sh\nif [ "$1" = list ]; then printf "%s\\n" "{\\"name\\":\\"other\\",\\"status\\":\\"Running\\"}"; elif [ "$4" = true ]; then exit 0; else exit 7; fi\n');
   assert.deepEqual(await provider.check('other'), { id: 'other', ready: false, status: 'IsolationUnverified', isolated: false });
@@ -83,6 +83,7 @@ test('Lima ensure reconciles concurrent processes to one VM', async t => {
   const binary = join(dir, 'limactl');
   const state = join(dir, 'state');
   const launches = join(dir, 'launches');
+  const capturedProfile = join(dir, 'profile.json');
   await writeFile(binary, `#!/usr/bin/env node
 const fs = require('node:fs');
 const args = process.argv.slice(2);
@@ -90,6 +91,7 @@ if (args[0] === 'list') {
   if (fs.existsSync(process.env.PROBE_STATE)) console.log(fs.readFileSync(process.env.PROBE_STATE, 'utf8'));
 } else if (args[0] === 'start') {
   const name = args.find(v => v.startsWith('--name=')).slice(7);
+  fs.copyFileSync(args.at(-1), process.env.PROBE_CONFIG);
   fs.appendFileSync(process.env.PROBE_LAUNCHES, name + '\\n');
   setTimeout(() => fs.writeFileSync(process.env.PROBE_STATE, JSON.stringify({name, status:'Running'})), 100);
 } else if (args[0] !== 'shell') process.exitCode = 1;
@@ -100,7 +102,7 @@ if (args[0] === 'list') {
 const provider = new LimaWorkspaceProvider(process.env.PROBE_BINARY);
 const result = await provider.ensure('installation', 'project', {kind:'vm',provider:'lima',image:'https://example.invalid/image',imageDigest:'sha256:' + 'a'.repeat(64),cpus:2,memoryMb:1024,diskGb:10});
 if (!result.ready) process.exitCode = 2;`);
-  const env = { ...process.env, LIMA_HOME: join(dir, 'instances'), PROBE_STATE: state, PROBE_LAUNCHES: launches, PROBE_BINARY: binary };
+  const env = { ...process.env, LIMA_HOME: join(dir, 'instances'), PROBE_STATE: state, PROBE_LAUNCHES: launches, PROBE_BINARY: binary, PROBE_CONFIG: capturedProfile };
   function run() {
     return new Promise((resolveRun, reject) => {
       const child = spawn(process.execPath, [script], { env, stdio: ['ignore', 'pipe', 'pipe'], cwd: resolve('.') });
@@ -112,6 +114,8 @@ if (!result.ready) process.exitCode = 2;`);
   }
   await Promise.all([run(), run()]);
   assert.equal((await readFile(launches, 'utf8')).trim().split('\n').length, 1);
+  const profile = JSON.parse(await readFile(capturedProfile, 'utf8'));
+  assert.deepEqual(profile.portForwards, [{ guestIP: '0.0.0.0', guestIPMustBeZero: false, proto: 'any', guestPortRange: [1, 65535], ignore: true }]);
 });
 
 test('workspace actions persist results and never rerun uncertain operations', async t => {
@@ -211,9 +215,12 @@ test('workspace action endpoints validate authorization, project binding and arg
   assert.equal((await send('/run', { ...base, argv: ['pwd'] }, 'wrong'))[0], 401);
   assert.equal((await send('/run', { ...base, projectId: '../bad', argv: ['pwd'] }))[0], 422);
   assert.equal((await send('/run', { ...base, argv: 'pwd' }))[0], 422);
+  assert.equal((await send('/run', { ...base, argv: ['pwd'], qa: { revision: '../bad' } }))[0], 422);
+  assert.equal((await send('/run', { ...base, argv: ['pwd'], qa: { revision: 'a'.repeat(40), extra: true } }))[0], 422);
   assert.equal((await send('/run', { ...base, argv: ['pwd'] }))[0], 200);
+  assert.equal((await send('/run', { ...base, operationKey: 'qa-1', argv: ['pwd'], qa: { revision: 'a'.repeat(40) } }))[0], 200);
   assert.deepEqual((await send('/check', base))[1], { code: 'workspace_path_too_long' });
   assert.deepEqual((await send('/source', base))[1], { revision: 'baseline', hasProject: true });
   assert.deepEqual((await send('/reconcile', base))[1], { status: 'unknown' });
-  assert.deepEqual(calls, [['install-project', 'stable-1', ['pwd']], ['install-project'], ['install-project', 'stable-1']]);
+  assert.deepEqual(calls, [['install-project', 'stable-1', ['pwd']], ['install-project', 'qa-1', ['pwd'], { revision: 'a'.repeat(40) }], ['install-project'], ['install-project', 'stable-1']]);
 });

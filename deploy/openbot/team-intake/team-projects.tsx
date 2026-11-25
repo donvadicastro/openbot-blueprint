@@ -16,7 +16,7 @@ type Project = {
   conversations: { channelId: string; title: string }[];
 };
 
-export function TeamProjects({ projectId }: { projectId?: string }) {
+export function TeamProjects({ projectId, businessProjectId }: { projectId?: string; businessProjectId?: string }) {
   const [showLegacy, setShowLegacy] = useState(false);
   const navigate = useNavigate();
   const business = useQuery({
@@ -31,10 +31,12 @@ export function TeamProjects({ projectId }: { projectId?: string }) {
   });
   if (business.isPending) return <p className="p-6">Loading projects…</p>;
   if (business.isError) return <p className="p-6" role="alert">Could not load the blueprint.</p>;
-  if (business.data && !showLegacy && !projectId) return <BusinessProjects onShowLegacy={() => setShowLegacy(true)} />;
+  if (business.data && !showLegacy && (!projectId || businessProjectId)) return <BusinessProjects key={businessProjectId ?? "all"} initialProjectId={businessProjectId} onShowLegacy={() => setShowLegacy(true)} onAllProjects={() => {
+    void navigate({ to: "/projects", search: { project: undefined, businessProject: undefined } });
+  }} />;
   return <LegacyTeamProjects projectId={projectId} readOnly={business.data} onShowBusiness={business.data ? () => {
     setShowLegacy(false);
-    void navigate({ to: "/projects", search: { project: undefined } });
+    void navigate({ to: "/projects", search: { project: undefined, businessProject: undefined } });
   } : undefined} />;
 }
 
@@ -47,6 +49,7 @@ function LegacyTeamProjects({ projectId, readOnly, onShowBusiness }: { projectId
   const [agentIds, setAgentIds] = useState<string[]>([]);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
+  const [selectedLegacy, setSelectedLegacy] = useState<string[]>([]);
   const projects = useQuery({
     queryKey: ["blueprint-team-projects"],
     staleTime: 0,
@@ -76,7 +79,7 @@ function LegacyTeamProjects({ projectId, readOnly, onShowBusiness }: { projectId
         await queryClient.invalidateQueries({ queryKey: ["blueprint-team-projects"] });
         setCreating(false);
         setSource("");
-        await navigate({ to: "/projects", search: { project: saved.id } });
+        await navigate({ to: "/projects", search: { project: saved.id, businessProject: undefined } });
         return;
       }
       const { channelId, source: projectSource } = await response.json() as { channelId: string; source?: string };
@@ -91,12 +94,34 @@ function LegacyTeamProjects({ projectId, readOnly, onShowBusiness }: { projectId
     }
   }
 
+  async function importPrevious() {
+    if (!project || pending) return;
+    setPending(true);
+    setError("");
+    try {
+      const response = await tryClient(`/api/products/legacy/${encodeURIComponent(project.id)}/import`, {
+        method: "POST", body: { channelIds: selectedLegacy },
+      });
+      if (!response.ok) {
+        const result = await response.json().catch(() => ({})) as { code?: string };
+        throw new Error(result.code === "legacy_association_unverified"
+          ? "A selected conversation is shared or its original project cannot be verified. Leave it unselected and open it from Previous projects."
+          : "Couldn’t import this previous project. Try again.");
+      }
+      const result = await response.json() as { projectId: string };
+      await queryClient.invalidateQueries({ queryKey: ["business-projects"] });
+      await navigate({ to: "/projects", search: { project: undefined, businessProject: result.projectId } });
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Couldn’t import this previous project.");
+    } finally { setPending(false); }
+  }
+
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
       <SidebarToggleBar />
       <main className="mx-auto max-w-3xl space-y-6 px-6 py-8">
         {onShowBusiness && <Button type="button" variant="outline" onClick={onShowBusiness}>Business projects</Button>}
-        {projectId && <Link className="text-sm underline underline-offset-4" to="/projects" search={{ project: undefined }}>All projects</Link>}
+        {projectId && <Link className="text-sm underline underline-offset-4" to="/projects" search={{ project: undefined, businessProject: undefined }}>All projects</Link>}
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h1 className="text-2xl font-semibold">{project?.name ?? "Projects"}</h1>
@@ -118,6 +143,17 @@ function LegacyTeamProjects({ projectId, readOnly, onShowBusiness }: { projectId
               <h2 className="font-medium">Artifacts</h2>
               <p className="break-all text-sm">{project.source}</p>
             </section>
+            {readOnly && <section className="space-y-3 rounded-lg border p-4" aria-label="Import previous project">
+              <h2 className="font-medium">Import into business projects</h2>
+              <p className="text-sm text-muted-foreground">Choose private conversations to attach. Unselected conversations remain available here; shared or unverifiable conversations cannot be attached.</p>
+              {project.conversations.map(({ channelId, title }) => <label key={channelId} className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={selectedLegacy.includes(channelId)} disabled={pending} onChange={event => {
+                  const checked = event.target.checked;
+                  setSelectedLegacy(current => checked ? [...current, channelId] : current.filter(id => id !== channelId));
+                }} />{title}
+              </label>)}
+              <Button type="button" disabled={pending} onClick={() => void importPrevious()}>{pending ? "Importing…" : "Import project"}</Button>
+            </section>}
             {!readOnly && <fieldset className="space-y-2 rounded-lg border p-4" disabled={pending}>
               <legend className="px-1 font-medium">Choose bots for a new conversation</legend>
               {bots.isPending && <p className="text-sm">Loading bots…</p>}
@@ -153,7 +189,7 @@ function LegacyTeamProjects({ projectId, readOnly, onShowBusiness }: { projectId
         ) : !projectId && Boolean(projects.data?.length) ? (
           <ul aria-label="Projects" className="divide-y rounded-lg border">
             {projects.data?.map(item => <li key={item.id}>
-              <Link className="block px-4 py-3 hover:bg-muted" to="/projects" search={{ project: item.id }}>
+              <Link className="block px-4 py-3 hover:bg-muted" to="/projects" search={{ project: item.id, businessProject: undefined }}>
                 <span className="font-medium">{item.name}</span>
                 <span className="ml-3 text-sm text-muted-foreground">
                   {item.conversations.length} {item.conversations.length === 1 ? "conversation" : "conversations"}

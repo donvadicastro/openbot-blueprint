@@ -67,21 +67,26 @@ export function requireOperational(project: Project) {
   }
 }
 
-/** Resolve a bot callback from the authenticated owner and native conversation. */
+/** Resolve a bot callback from the authenticated owner and native conversation.
+ * trustedAssignmentId must come from the server's turn binding, never from a bot tool argument.
+ */
 export async function requireBotProject(
   database: ProductQuery, actor: ProductActor, channelId: string, nativeBotId: string,
-  permission: ProductPermission = "read",
+  permission: ProductPermission = "read", trustedAssignmentId?: string,
 ) {
-  const [binding] = await database.unsafe<{ projectId: string; assignmentId: string }>(`
+  const bindings = await database.unsafe<{ projectId: string; assignmentId: string }>(`
     select c.project_id as "projectId", a.id as "assignmentId"
     from bp_conversations c
     join channel_memberships cm on cm.channel_id = c.native_channel_id and cm.user_id = $2
     join channels ch on ch.id = c.native_channel_id and ch.deleted_at is null
     join bp_assignments a on a.project_id = c.project_id and a.native_bot_id = $3
-    where c.native_channel_id = $1
+    where c.native_channel_id = $1 and ($4::text is null or a.id = $4)
     for share of c, cm, ch, a
-  `, [channelId, actor.id, nativeBotId]);
-  if (!binding) throw new ProductError(404, "project_not_found", "Project not found.");
+  `, [channelId, actor.id, nativeBotId, trustedAssignmentId ?? null]);
+  // A shared native bot can represent multiple roles. Without a trusted turn
+  // assignment, choosing the first row could grant the wrong role's access.
+  if (bindings.length !== 1) throw new ProductError(404, "project_not_found", "Project not found.");
+  const [binding] = bindings;
   const project = await requireProject(database, actor, binding.projectId, permission);
   return { project, assignmentId: binding.assignmentId };
 }

@@ -20,6 +20,7 @@ const validEnvironment = () => ({
   COMPUTER_TOKEN: 'a'.repeat(40), SUPERVISOR_TOKEN: 'b'.repeat(40),
   AGENT_TOOL_TOKEN: 'c'.repeat(40), WORKER_SHARED_SECRET: 'd'.repeat(40),
   MANAGED_AGENT_TOKEN: 'e'.repeat(40),
+  WORKFLOW_POSTGRES_PASSWORD: 'f'.repeat(40), WORKFLOW_ACTIVITY_TOKEN: 'g'.repeat(40), WORKFLOW_ENGINE_TOKEN: 'h'.repeat(40),
   OPENBOT_SINGLE_USER: 'true', COMPUTER_BROWSER_MODE: 'headless'
 });
 async function temporary(t) {
@@ -119,7 +120,7 @@ test('Compose configuration wires the native platform and isolates its data netw
   });
   assert.equal(result.status, 0, 'Compose config failed; rendered environment deliberately omitted');
   const config = JSON.parse(result.stdout);
-  assert.deepEqual(Object.keys(config.services).sort(), ['agent-computer', 'blueprint-init', 'implementer-bot', 'migrate', 'postgres', 'server', 'supervisor', 'worker']);
+  assert.deepEqual(Object.keys(config.services).sort(), ['agent-computer', 'blueprint-init', 'implementer-bot', 'migrate', 'postgres', 'server', 'supervisor', 'temporal', 'worker', 'workflow-postgres', 'workflow-worker']);
   assert.equal(config.services.server.environment.TENANT_PACKAGE_DIR, '/tenant/current');
   assert.equal(config.services.server.depends_on['blueprint-init'].condition, 'service_completed_successfully');
   assert.equal(config.services.server.depends_on['implementer-bot'].condition, 'service_healthy');
@@ -139,6 +140,11 @@ test('Compose configuration wires the native platform and isolates its data netw
   }
   assert.deepEqual(Object.keys(config.services.postgres.networks), ['data']);
   assert.equal(config.networks.data.internal, true);
+  assert.equal(config.networks.workflow.internal, true);
+  assert.deepEqual(Object.keys(config.services.temporal.ports ?? {}), []);
+  assert.deepEqual(Object.keys(config.services['workflow-postgres'].ports ?? {}), []);
+  assert.deepEqual(Object.keys(config.services['workflow-worker'].ports ?? {}), []);
+  assert.equal(config.services['workflow-worker'].depends_on.server.condition, 'service_healthy');
   assert.equal(config.services.server.ports[0].host_ip, '127.0.0.1');
   assert.equal(config.services.supervisor.environment.COMPUTER_NETWORK, config.networks.agents.name);
   const revision = JSON.parse(await readFile(join(root, 'deploy/openbot/upstream.json'), 'utf8')).revision;

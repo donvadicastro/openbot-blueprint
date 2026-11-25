@@ -1,0 +1,7 @@
+**
+!deploy/
+!deploy/workflow/
+!deploy/workflow/staging-fixture.mjs
+!test/
+!test/fixtures/
+!test/fixtures/staging-target.mjs

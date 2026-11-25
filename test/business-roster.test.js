@@ -12,7 +12,7 @@ for (const name of ['software-development', 'software-development-custom-bot']) 
     assert.equal(business.teamLeadRole, 'team-lead');
     assert.deepEqual(business.initialization.requiredArtifacts, ['source-code']);
     assert.deepEqual(business.initialization.recommendedArtifacts, [
-      'ci-cd', 'test-environment', 'live-environment', 'documentation', 'requirements',
+      'ci-cd', 'test-environment', 'live-environment', 'documentation', 'requirements', 'release-runbook', 'release-target',
     ]);
     for (const role of business.roles) {
       assert.ok(blueprint.agents.some(agent => agent.id === role.agentId));
@@ -24,6 +24,7 @@ for (const name of ['software-development', 'software-development-custom-bot']) 
       assert.ok([source.owner, ...source.consumers, ...source.producers].includes(role.id));
       assert.ok(blueprint.agents.find(agent => agent.id === role.agentId).tools.includes('repository-read'));
     }
+    assert.ok(business.artifactTypes.find(type => type.id === 'deployment-evidence').consumers.includes('team-lead'));
     const qa = business.artifactTypes.find(type => type.id === 'qa-evidence');
     const evidence = {
       candidateRevision: 'candidate-1', briefRevision: 'brief-1', planRevision: 'plan-1',

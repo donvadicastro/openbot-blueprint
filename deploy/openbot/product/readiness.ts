@@ -36,15 +36,19 @@ export function readinessOperations(module: ProductModule, probe?: ReadinessProb
   return {
     async inspect(actor: ProductActor, projectId: string) {
       const project = await requireProject(module.database, actor, projectId);
+      const definition = await module.definitionFor(project);
       const reports = await module.database.unsafe<{
         assignmentId: string; assignmentRevision: number; inputDigest: string | null;
         status: "Ready" | "Blocked" | "Pending"; evidence: unknown;
         roleKey: string; checkedAt: string | null;
       }>(`
         select a.id as "assignmentId", a.revision as "assignmentRevision",
-          r.input_digest as "inputDigest", coalesce(r.status, 'Pending') as status,
-          coalesce(r.evidence, '{"reason":"Waiting for the assigned bot to report readiness.","checks":[]}'::jsonb) as evidence,
-          a.role_key as "roleKey", r.checked_at as "checkedAt"
+          case when r.assignment_revision=a.revision then r.input_digest else null end as "inputDigest",
+          case when r.assignment_revision=a.revision then r.status else 'Pending' end as status,
+          case when r.assignment_revision is null then '{"reason":"Waiting for the assigned bot to report readiness.","checks":[]}'::jsonb
+            when r.assignment_revision<>a.revision then '{"reason":"The bot assignment changed; readiness must be checked again.","checks":[]}'::jsonb
+            else r.evidence end as evidence,
+          a.role_key as "roleKey", case when r.assignment_revision=a.revision then r.checked_at else null end as "checkedAt"
         from bp_assignments a left join bp_readiness r on r.project_id=a.project_id and r.assignment_id=a.id
         where a.project_id=$1 order by a.role_key
       `, [projectId]);
@@ -56,31 +60,47 @@ export function readinessOperations(module: ProductModule, probe?: ReadinessProb
       const [conversation] = await module.database.unsafe<{ nativeChannelId: string }>(`
         select c.native_channel_id as "nativeChannelId"
         from bp_conversations c
+        join bp_assignments a on a.project_id=c.project_id and a.id=c.team_lead_assignment_id and a.role_key=$3
+        join channel_agents ca on ca.channel_id=c.native_channel_id and ca.agent_id=a.native_bot_id
         join channel_memberships m on m.channel_id=c.native_channel_id and m.user_id=$2
         join channels ch on ch.id=c.native_channel_id and ch.deleted_at is null
         where c.project_id=$1 limit 1
-      `, [projectId, actor.id]);
-      const definition = await module.definitionFor(project);
+      `, [projectId, actor.id, definition.business!.teamLeadRole]);
       const artifacts = await module.database.unsafe<{ typeKey: string }>(
         "select type_key as \"typeKey\" from bp_artifacts where project_id=$1 and status='supplied'", [projectId],
+      );
+      const existingArtifacts = await module.database.unsafe<{ typeKey: string }>(
+        'select type_key as "typeKey" from bp_artifacts where project_id=$1', [projectId],
       );
       const visibleArtifacts = await module.database.unsafe<{ typeKey: string; source: Record<string, unknown>; status: string }>(
         'select type_key as "typeKey", source, status from bp_artifacts where project_id=$1 and (allowed_user_ids is null or $2 = any(allowed_user_ids)) order by type_key',
         [projectId, actor.id],
       );
       const present = new Set(artifacts.map(artifact => artifact.typeKey));
+      const missingArtifacts = definition.business!.initialization.requiredArtifacts.filter(type => !present.has(type));
+      const stale = reports.length !== definition.business!.roles.length || definition.business!.roles.some(role =>
+        !reports.some(report => report.roleKey === role.id && report.status === "Ready")) ||
+        missingArtifacts.length > 0 || (definition.business!.initialization.workspace.kind === "vm" && workspace?.state !== "Ready");
+      const visibleProject = project.state === "Operational" && stale ? { ...project, state: "Initializing" as const } : project;
+      const visibleTypes = new Set(visibleArtifacts.map(artifact => artifact.typeKey));
+      const hiddenTypes = new Set(existingArtifacts.map(artifact => artifact.typeKey).filter(type => !visibleTypes.has(type)));
+      // Existing reports may have been created before role filtering, and their
+      // digest covers every artifact. Do not expose them while any input is hidden.
+      const visibleReports = hiddenTypes.size ? reports.map(report => ({ ...report, inputDigest: null,
+        evidence: { reason: "Some readiness details are restricted.", checks: [] } })) : reports;
       return {
-        project,
+        project: visibleProject,
         workspace: workspace ? {
           ...workspace,
           ...(visibleArtifacts.some(artifact => artifact.typeKey === "source-code") ? {} : {
             excludedPaths: [], excludesUncommittedChanges: false, sourceRevision: null,
+            reason: workspace.reason ? "Workspace details are unavailable." : null,
           }),
         } : null,
-        reports,
+        reports: visibleReports,
         artifacts: visibleArtifacts,
         teamLeadChannelId: conversation?.nativeChannelId ?? null,
-        missingArtifacts: definition.business!.initialization.requiredArtifacts.filter(type => !present.has(type)),
+        missingArtifacts,
       };
     },
 
@@ -97,6 +117,10 @@ export function readinessOperations(module: ProductModule, probe?: ReadinessProb
         select type_key as "typeKey", source, status from bp_artifacts
         where project_id=$1 order by type_key
       `, [projectId]);
+      const visibleArtifacts = await module.database.unsafe<Artifact>(`
+        select type_key as "typeKey", source, status from bp_artifacts
+        where project_id=$1 and (allowed_user_ids is null or $2=any(allowed_user_ids)) order by type_key
+      `, [projectId, actor.id]);
       const [workspace] = await module.database.unsafe<Workspace>(`
         select provider_id as "providerId", source_revision as "sourceRevision", state
         from bp_project_vms where project_id=$1
@@ -110,9 +134,31 @@ export function readinessOperations(module: ProductModule, probe?: ReadinessProb
           const reachable = checked.ready === true && checked.id === workspace.providerId;
           workspaceReady = reachable && checked.isolated === true;
           if (checked.status === "IsolationUnverified" || (reachable && !workspaceReady)) workspaceReason = "The project workspace network isolation has not been verified.";
+          if (workspaceReady) {
+            const source = await workspaceCall("source", { installationId: project.installationId, projectId });
+            workspaceReady = source.hasProject === true && source.revision === workspace.sourceRevision;
+            if (!workspaceReady) workspaceReason = "The project workspace source revision could not be verified.";
+          }
         } catch {
           workspaceReady = false;
         }
+      }
+      // Restore the VM's health state before the assigned bots probe it. The
+      // project itself stays Initializing until every report is current.
+      if (workspaceReady && workspace && workspace.state !== "Ready" && business.initialization.workspace.kind === "vm") {
+        await module.database.begin(async transaction => {
+          await transaction.unsafe("select pg_advisory_xact_lock(hashtextextended($1,0))", [projectId]);
+          const current = await requireProject(transaction, actor, projectId, "manage");
+          if (current.state === "Archived" || current.revision !== project.revision) {
+            throw new ProductError(409, "readiness_stale", "Project setup changed while readiness checks were running. Check again.");
+          }
+          const restored = await transaction.unsafe<{ projectId: string }>(`
+            update bp_project_vms set state='Ready',reason=null,updated_at=now()
+            where project_id=$1 and provider_id=$2 and source_revision=$3 returning project_id as "projectId"
+          `, [projectId, workspace.providerId, workspace.sourceRevision]);
+          if (!restored.length) throw new ProductError(409, "readiness_stale", "The project workspace changed while readiness was checked. Check again.");
+        });
+        workspace.state = "Ready";
       }
       const missingArtifacts = business.initialization.requiredArtifacts.filter(
         type => !artifacts.some(artifact => artifact.typeKey === type && artifact.status === "supplied"),
@@ -131,27 +177,35 @@ export function readinessOperations(module: ProductModule, probe?: ReadinessProb
         let result: Awaited<ReturnType<ReadinessProbe>> | undefined;
         if (probe && workspaceReady && !missingArtifacts.length) {
           try {
+            const roleArtifacts = visibleArtifacts.filter(artifact => {
+              const type = business.artifactTypes?.find(item => item.id === artifact.typeKey);
+              return type && (type.owner === role.id || (Array.isArray(type.producers) && type.producers.includes(role.id)) || (Array.isArray(type.consumers) && type.consumers.includes(role.id)));
+            });
+            const sourceScoped = business.artifactTypes?.some(type => type.id === "source-code") ?? false;
             result = await probe({
               projectId, assignmentId: assignment.id, nativeBotId: assignment.nativeBotId,
-              roleKey: role.id, actorId: actor.id, checks: required, artifacts, workspace: workspace ?? null,
+              roleKey: role.id, actorId: actor.id, checks: required, artifacts: roleArtifacts,
+              workspace: sourceScoped && !roleArtifacts.some(artifact => artifact.typeKey === "source-code") ? null : workspace ?? null,
             });
           } catch {
             result = undefined;
           }
         }
-        const allChecksPassed = result?.ready === true && required.every(check => {
-          const matches = result!.checks.filter(item => item.id === check.id);
-          return matches.length === 1 && matches[0].passed && Boolean(matches[0].evidence.trim());
+        const checks = Array.isArray(result?.checks) ? result.checks.filter(item => item && typeof item.id === "string" && item.id.length <= 200 &&
+          typeof item.passed === "boolean" && typeof item.evidence === "string" && item.evidence.length <= 4000).slice(0, required.length + 1) : [];
+        const allChecksPassed = result?.ready === true && Array.isArray(result.checks) && checks.length === result.checks.length && checks.length === required.length && required.every(check => {
+          const matches = checks.filter(item => item.id === check.id);
+          return matches.length === 1 && matches[0].passed === true && Boolean(matches[0].evidence.trim());
         });
         const reason = missingArtifacts.length ? `Required artifacts are missing: ${missingArtifacts.join(", ")}.`
           : !workspaceReady ? workspaceReason
             : !result ? "Waiting for the assigned bot to report readiness."
-              : !allChecksPassed ? result.reason ?? "The assigned bot reported an incomplete readiness check."
+              : !allChecksPassed ? (typeof result.reason === "string" && result.reason.trim() ? result.reason.slice(0, 4000) : "The assigned bot reported an incomplete readiness check.")
                 : undefined;
         reports.push({
           assignmentId: assignment.id, assignmentRevision: assignment.revision, inputDigest,
           status: !reason && allChecksPassed ? "Ready" : "Blocked",
-          evidence: { ...(reason ? { reason } : {}), checks: result?.checks ?? [] },
+          evidence: { ...(reason ? { reason } : {}), checks },
         });
       }
       await module.database.begin(async transaction => {

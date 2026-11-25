@@ -9,6 +9,7 @@ export interface Schema {
   minLength?: number;
   pattern?: string;
   minimum?: number;
+  maximum?: number;
   minItems?: number;
   uniqueItems?: boolean;
   items?: Schema;
@@ -34,7 +35,9 @@ export function validateSchema(value: unknown, schema: Schema, root: Schema = sc
   const errors: string[] = [];
   const fail = (message: string) => errors.push(`${path}: ${message}`);
   const type = Array.isArray(value) ? 'array' : value === null ? 'null' : typeof value;
-  if (schema.type && type !== schema.type) return [`${path}: expected ${schema.type}, got ${type}`];
+  if (schema.type === 'integer' ? typeof value !== 'number' || !Number.isSafeInteger(value) : schema.type && type !== schema.type) {
+    return [`${path}: expected ${schema.type}, got ${type}`];
+  }
   if (schema.enum && !schema.enum.includes(value)) fail(`must be one of ${schema.enum.join(', ')}`);
   if (schema.const !== undefined && value !== schema.const) fail(`must equal ${schema.const}`);
   if (typeof value === 'string') {
@@ -42,6 +45,7 @@ export function validateSchema(value: unknown, schema: Schema, root: Schema = sc
     if (schema.pattern && !new RegExp(schema.pattern).test(value)) fail(`must match ${schema.pattern}`);
   }
   if (typeof value === 'number' && schema.minimum !== undefined && value < schema.minimum) fail(`must be >= ${schema.minimum}`);
+  if (typeof value === 'number' && schema.maximum !== undefined && value > schema.maximum) fail(`must be <= ${schema.maximum}`);
   if (Array.isArray(value)) {
     if (schema.minItems && value.length < schema.minItems) fail(`needs at least ${schema.minItems} item(s)`);
     if (schema.uniqueItems && new Set(value.map(x => JSON.stringify(x))).size !== value.length) fail('duplicate items');

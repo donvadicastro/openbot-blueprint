@@ -88,3 +88,93 @@ Requests carry objective, revision, acceptance criteria and artifact paths. Resu
 A future runner must select the adapter, pass scoped capabilities, provision isolation, handle cancellation and timeouts, validate results, and enforce workflow gates and budgets. A factory name or framework declaration alone implements none of those behaviors.
 
 Local bots cannot be exported to OpenBot as built-in coworkers. Deploy them with a compatible AG-UI service and change their declarations to `remote` before export. This preserves the chosen custom implementation.
+
+## Project context for framework bots
+
+The OpenBot callback accepts `project_context`, `project_memory`, and
+`project_artifacts` with empty argument objects, and `project_artifact_read`
+with an artifact ID and optional revision, when a custom bot runs in a project
+conversation. OpenBot
+derives the project and assignment from the verified bot token and signed run
+thread; the bot cannot select a project or assignment in the tool arguments.
+`project_memory` returns only guidance for that assignment that the person can
+access. A run without a unique project and assignment is refused. These
+context callbacks are read-only; they do not grant workspace, release, or workflow
+permissions. A custom service must explicitly call the callback with its
+native OpenBot credentials and run assertion. Built-in bots are offered these
+tools in their project conversation and access is rechecked on each call.
+The assigned Team Lead can also call `project_workflows` with empty arguments
+to discover the pinned blueprint's published workflows and intended outcomes.
+The list is informational; it does not start or dispatch a workflow.
+
+### Native MCP tools for workflow specialists
+
+Project workflow turns can receive a read-only MCP tool that OpenBot already
+registered and granted to the assigned bot. Declare its exact
+`serverId/toolName` reference on the blueprint tool, and bind every MCP
+argument that selects a resource to a JSON Pointer in an artifact input for
+that phase:
+
+```json
+{
+  "id": "repository-read",
+  "transport": "mcp",
+  "access": "read",
+  "endpointEnv": "REPOSITORY_MCP_URL",
+  "nativeRefs": ["github/repository_read_file"],
+  "resourceBindings": [
+    {
+      "argumentPath": "/owner",
+      "artifactType": "project-source",
+      "payloadPath": "/repository/owner"
+    },
+    {
+      "argumentPath": "/repo",
+      "artifactType": "project-source",
+      "payloadPath": "/repository/name"
+    }
+  ]
+}
+```
+
+Register and configure the MCP server in OpenBot, then grant that exact tool to
+the relevant bot. `endpointEnv` documents the service endpoint for blueprint
+deployment/export; this runtime integration uses the MCP server configured in
+OpenBot. The blueprint does not create OpenBot credentials or grants.
+At runtime the project runner filters OpenBot's grants to the references
+declared by the assigned bot. Each invocation rechecks the active project,
+phase, role, supplied visible artifact revision, and exact resource arguments;
+unmatched or unbound tools are refused. Only tools declared `access: "read"`
+with at least one artifact binding are eligible. Write and execute MCP tools,
+handoffs, and tools granted to other bots are not exposed to the project
+workflow turn. If no exact OpenBot grant exists, the specialist receives no
+MCP tool.
+The Team Lead can call `project_prepare_workflow` with `request` and an
+`interpretation` containing exactly one of `workflowId`, `needsClarification`,
+or a `temporary` workflow proposal. OpenBot verifies the conversation, the
+assigned role and readiness, validates the proposal, and stores a pending
+plan. A pending plan has not started; workflow execution is not yet connected.
+Delegated bots use their signed source conversation and must hold an active
+OpenBot handoff lease. Built-in turns receive a bounded set of the current
+authorized feedback with the memory tool; the tool returns the complete set.
+Custom services that do not use OpenBot's offered tools must call the callback
+themselves.
+
+`project_memory_propose` records feedback from the authenticated person's
+actual conversation message. Custom services supply `messageId` and `guidance`;
+to correct existing guidance they also supply `entryId` and `expectedRevision`.
+If feedback conflicts and its meaning is unclear, set `conflict: true` with
+the existing entry and revision, then ask the person to clarify. The conflict
+is held out of active guidance and pauses that specialist's workflow actions.
+After a new clarification message, supply its `messageId`, the entry and
+revision, and the returned `resolveConflictId`. OpenBot verifies the message,
+conversation, assignment, and feedback permission and retains revision history.
+Built-in bots receive the same tool with the current message selected by the
+server. Feedback does not change a bot's permissions or bypass workflow rules.
+
+`project_workspace_run` and `project_workspace_reconcile` are available only
+when the workflow dispatcher has bound the bot's native run to an active,
+authorized phase. The bot supplies command arguments, while OpenBot determines
+the project, assignment, granted tool, and stable operation ID. The dispatcher
+does not yet create these bindings, so workspace tools remain unavailable in
+the current pilot until workflow action integration is complete.

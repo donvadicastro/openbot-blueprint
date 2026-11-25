@@ -125,6 +125,17 @@
       },
       {
         "from": "verify",
+        "to": "verify",
+        "when": {
+          "status": "succeeded",
+          "recordType": "qa-evidence",
+          "field": "verdict",
+          "equals": "pending",
+          "decision": "retry-qa"
+        }
+      },
+      {
+        "from": "verify",
         "to": "verified",
         "when": {
           "status": "succeeded",

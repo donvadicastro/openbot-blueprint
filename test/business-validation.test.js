@@ -50,6 +50,15 @@ test('business validation accepts a declared rework cycle and local data schema 
   assert.deepEqual(await validate(b, directory), []);
 });
 
+test('business validation rejects invalid retry limits and delays', async () => {
+  for (const retry of [{ maxAttempts: 1.5, delaySeconds: 0 }, { maxAttempts: 10001, delaySeconds: 0 },
+    { maxAttempts: 2, delaySeconds: -1 }, { maxAttempts: 2, delaySeconds: 31536001 }]) {
+    const b = fixture();
+    b.business.actions[0].retry = retry;
+    assert.ok((await validate(b, directory)).length, `Accepted ${JSON.stringify(retry)}`);
+  }
+});
+
 test('business validation rejects unresolved roles, actions, types, and Team Lead bindings', async () => {
   await rejected(b => { b.teamLeadRole = 'unknown'; }, /Team Lead/);
   await rejected((b, bp) => { b.roles[0].agentId = bp.agents.find(a => a.id !== bp.entrypoint).id; }, /Team Lead.*entrypoint/);
@@ -68,6 +77,35 @@ test('a startup artifact check requires its role to have declared artifact acces
   const source = blueprint.business.artifactTypes.find(type => type.id === 'source-code');
   source.consumers = source.consumers.filter(role => role !== 'qa');
   assert.ok(validateContract(blueprint, contractSchema).some(error => /qa startup check lacks access to source-code/.test(error)));
+});
+
+test('project workflow MCP grants require exact native refs and visible artifact bindings', async () => {
+  const valid = fixture();
+  valid.tools[0] = { ...valid.tools[0], transport: 'mcp', endpointEnv: 'PROJECT_MCP_URL',
+    nativeRefs: ['repo-server/read_file'], resourceBindings: [
+      { argumentPath: '/status', artifactType: 'brief', payloadPath: '/status' },
+    ] };
+  assert.deepEqual(await validate(valid, directory), []);
+  for (const [mutate, pattern] of [
+    [tool => { tool.transport = 'native'; }, /nativeRefs and resourceBindings require MCP/],
+    [tool => { tool.access = 'write'; }, /project workflow MCP tools must be read-only/],
+    [tool => { delete tool.resourceBindings; }, /need resourceBindings/],
+    [tool => { tool.resourceBindings[0].artifactType = 'missing'; }, /unknown artifact type/],
+    [tool => { tool.nativeRefs[0] = 'invalid-ref'; }, /must match/],
+    [tool => { tool.resourceBindings[0].argumentPath = 'path'; }, /must match/],
+  ]) {
+    const blueprint = fixture();
+    blueprint.tools[0] = { ...blueprint.tools[0], transport: 'mcp', endpointEnv: 'PROJECT_MCP_URL',
+      nativeRefs: ['repo-server/read_file'], resourceBindings: [
+        { argumentPath: '/status', artifactType: 'brief', payloadPath: '/status' },
+      ] };
+    mutate(blueprint.tools[0]);
+    assert.match((await validate(blueprint, directory)).join('\n'), pattern);
+  }
+  const duplicate = fixture();
+  duplicate.tools[0] = structuredClone(valid.tools[0]);
+  duplicate.tools.push({ ...valid.tools[0], id: 'second-repository-read' });
+  assert.match((await validate(duplicate, directory)).join('\n'), /already declared/);
 });
 
 test('business workflow rejects unreachable phases and overlapping guards', async () => {

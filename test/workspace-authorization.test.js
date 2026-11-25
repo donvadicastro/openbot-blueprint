@@ -31,7 +31,8 @@ test('workspace dispatch checks project membership, assignment, role, tool and V
     if (sql.includes('from bp_artifacts')) return sourceAllowed ? [{ id: 'source' }] : [];
     throw new Error('unexpected query');
   } };
-  const module = { database, async definitionFor() { return { agents: [{ id: 'engineer', tools: ['workspace-edit'] }], business: { artifactTypes: [{ id: 'source-code' }], roles: [{ id: 'engineer', agentId: 'engineer', actions: ['implement'] }] } }; } };
+  let protectedAction = false;
+  const module = { database, async definitionFor() { return { agents: [{ id: 'engineer', tools: ['workspace-edit'] }], business: { actions: [{ id: 'implement', role: 'engineer', approvalRequired: protectedAction }], artifactTypes: [{ id: 'source-code' }], roles: [{ id: 'engineer', agentId: 'engineer', actions: ['implement'] }] } }; } };
   project.state = 'Initializing';
   await assert.rejects(authorizedWorkspaceAction(module, context, ['true']), error => error.code === 'project_not_operational');
   project.state = 'Archived';
@@ -43,6 +44,9 @@ test('workspace dispatch checks project membership, assignment, role, tool and V
   assignment = null;
   await assert.rejects(authorizedWorkspaceAction(module, context, ['true']), error => error.code === 'assignment_denied');
   assignment = { roleKey: 'engineer', nativeBotId: 'engineer' };
+  protectedAction = true;
+  await assert.rejects(authorizedWorkspaceAction(module, context, ['true']), error => error.code === 'approval_gate_unavailable');
+  protectedAction = false;
   readiness = [{ roleKey: 'engineer', revision: 2, reportedRevision: 1, status: 'Ready' }];
   await assert.rejects(authorizedWorkspaceAction(module, context, ['true']), error => error.code === 'readiness_stale');
   readiness = [{ roleKey: 'engineer', revision: 1, reportedRevision: 1, status: 'Ready' }];
@@ -74,6 +78,8 @@ test('workspace dispatch checks project membership, assignment, role, tool and V
     globalThis.fetch = async () => ({ ok: true, json: async () => ({ id: 'vm', ready: true }) });
     await assert.rejects(authorizedWorkspaceAction(module, context, ['true']), error => error.code === 'workspace_isolation_unverified');
     globalThis.fetch = async () => ({ ok: true, json: async () => ({ id: 'other-vm', ready: true }) });
+    await assert.rejects(authorizedWorkspaceAction(module, context, ['true']), error => error.code === 'workspace_unavailable');
+    globalThis.fetch = async () => { throw new Error('connection refused'); };
     await assert.rejects(authorizedWorkspaceAction(module, context, ['true']), error => error.code === 'workspace_unavailable');
   } finally {
     globalThis.fetch = oldFetch;

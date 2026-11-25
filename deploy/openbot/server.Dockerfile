@@ -30,6 +30,8 @@ COPY deploy/openbot/team-intake/setup-form.tsx app/src/components/channels/team-
 COPY deploy/openbot/team-intake/project-folder-picker.tsx app/src/components/channels/project-folder-picker.tsx
 COPY deploy/openbot/team-intake/team-projects.tsx app/src/components/channels/team-projects.tsx
 COPY deploy/openbot/team-intake/business-projects.tsx app/src/components/channels/business-projects.tsx
+COPY deploy/openbot/team-intake/project-chat-work.tsx app/src/components/channels/project-chat-work.tsx
+COPY deploy/openbot/team-intake/workflow-status-message.ts app/src/components/channels/workflow-status-message.ts
 COPY deploy/openbot/team-intake/projects-route.tsx app/src/routes/_authed/_app/projects.tsx
 COPY src/setup-form.ts src/readiness.ts app/src/lib/team-setup/
 RUN bun /tmp/team-intake-install.ts app
@@ -45,6 +47,7 @@ WORKDIR /app
 COPY --from=deps /app/node_modules node_modules
 COPY --from=deps /app/package.json package.json
 COPY --from=deps /app/bun.lock bun.lock
+COPY --from=deps /app/tsconfig.base.json tsconfig.base.json
 COPY --from=deps /app/server/node_modules server/node_modules
 COPY --from=deps /app/toolkit/node_modules toolkit/node_modules
 COPY --from=deps /app/shared/node_modules shared/node_modules
@@ -65,6 +68,7 @@ COPY deploy/openbot/team-intake/setup-store.ts server/src/channels/team-setup-st
 COPY deploy/openbot/team-intake/project-folders.ts server/src/channels/project-folders.ts
 COPY src/setup-form.ts src/readiness.ts server/src/channels/
 COPY deploy/openbot/product server/src/product
+COPY src/feedback-context.ts server/src/product/feedback-context.ts
 COPY src/types.ts src/schema.ts src/business.ts src/blueprint-contract.ts src/readiness.ts server/src/product/contract/
 COPY schemas/blueprint.schema.json server/src/product/contract/blueprint.schema.json
 RUN bun /tmp/team-intake-install.ts server

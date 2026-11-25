@@ -14,6 +14,7 @@
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "blueprint": "npm run build --silent && node dist/bin/blueprint.js",
+    "provision:workspace": "npm run build --silent && node dist/bin/provision-workspace.js",
     "validate": "npm run build --silent && node dist/bin/blueprint.js validate",
     "test": "npm run build --silent && node --test test/*.test.js",
     "check": "npm run build && node dist/bin/blueprint.js validate && node --test test/*.test.js"

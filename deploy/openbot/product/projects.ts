@@ -34,13 +34,17 @@ export function projectOperations(module: ProductModule, createConversation?: Pr
         }
         await transaction.unsafe("insert into bp_project_vms(project_id) values($1) on conflict do nothing", [project.id]);
       });
-      await module.database.begin(async transaction => {
+      const teamLeadChannelId = await module.database.begin(async transaction => {
         // The lock spans the native channel transaction so concurrent retries
         // cannot create two conversations for the same project.
         await transaction.unsafe("select pg_advisory_xact_lock(hashtextextended($1,0))", [`team-lead:${project.id}`]);
         const [linked] = await transaction.unsafe<{ nativeChannelId: string }>(
-          'select native_channel_id as "nativeChannelId" from bp_conversations where project_id=$1',
-          [project.id],
+          `select c.native_channel_id as "nativeChannelId" from bp_conversations c
+           join bp_assignments a on a.project_id=c.project_id and a.id=c.team_lead_assignment_id and a.role_key=$2
+           join channel_agents ca on ca.channel_id=c.native_channel_id and ca.agent_id=a.native_bot_id
+           join channels ch on ch.id=c.native_channel_id and ch.deleted_at is null
+           where c.project_id=$1 limit 1`,
+          [project.id, definition.business!.teamLeadRole],
         );
         if (!linked) {
           const [assignment] = await transaction.unsafe<{ id: string; nativeBotId: string }>(
@@ -52,13 +56,26 @@ export function projectOperations(module: ProductModule, createConversation?: Pr
           }
           await createConversation({ actor, projectId: project.id, assignmentId: assignment.id, nativeBotId: assignment.nativeBotId });
           const [created] = await transaction.unsafe<{ nativeChannelId: string }>(
-            'select native_channel_id as "nativeChannelId" from bp_conversations where project_id=$1',
-            [project.id],
+            `select c.native_channel_id as "nativeChannelId" from bp_conversations c
+             join bp_assignments a on a.project_id=c.project_id and a.id=c.team_lead_assignment_id and a.role_key=$2
+             join channel_agents ca on ca.channel_id=c.native_channel_id and ca.agent_id=a.native_bot_id
+             join channels ch on ch.id=c.native_channel_id and ch.deleted_at is null
+             where c.project_id=$1 limit 1`,
+            [project.id, definition.business!.teamLeadRole],
           );
           if (!created) throw new ProductError(409, "team_lead_unavailable", "The Team Lead conversation could not be linked. Retry project creation.");
         }
+        const [visible] = await transaction.unsafe<{ nativeChannelId: string }>(`
+          select c.native_channel_id as "nativeChannelId" from bp_conversations c
+          join bp_assignments a on a.project_id=c.project_id and a.id=c.team_lead_assignment_id and a.role_key=$3
+          join channel_agents ca on ca.channel_id=c.native_channel_id and ca.agent_id=a.native_bot_id
+          join channel_memberships cm on cm.channel_id=c.native_channel_id and cm.user_id=$2
+          join channels ch on ch.id=c.native_channel_id and ch.deleted_at is null
+          where c.project_id=$1 order by c.created_at,c.native_channel_id limit 1`, [project.id, actor.id, definition.business!.teamLeadRole]);
+        if (!visible) throw new ProductError(409, "team_lead_unavailable", "The Team Lead conversation is not available. Retry project creation.");
+        return visible.nativeChannelId;
       });
-      return project;
+      return { ...project, teamLeadChannelId };
     },
     async initialize(actor: ProductActor, projectId: string, inputs: Record<string, Record<string, unknown> & { path?: string; reference?: string }>) {
       const project = await requireProject(module.database, actor, projectId, "manage");

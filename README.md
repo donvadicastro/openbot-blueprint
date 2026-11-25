@@ -24,7 +24,7 @@ This repository supports authoring, validating, scaffolding and exporting bluepr
 | Docker Compose deployment | Prepares the tenant and runs OpenBot's native app, database, worker and computer services |
 | Automated checks | Compiles TypeScript, validates the catalog and tests catalog behavior |
 
-**Docker Compose runs the native OpenBot platform.** The catalog declares the team and Compose loads its coworkers. Custom SDK execution, project-specific grants, automatic workflow scheduling, quality-gate evaluation and blueprint budget enforcement require runtime integration.
+**Docker Compose runs the OpenBot platform and its durable workflow engine.** The catalog declares the team and Compose loads its coworkers; Temporal supplies persisted project workflow execution and decision waits. Custom SDK execution, project-scoped MCP grants, live model acceptance, and end-to-end quality-gate evaluation remain under implementation.
 
 ## Run with Docker Compose
 

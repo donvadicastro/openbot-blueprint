@@ -50,7 +50,21 @@ export function validateContract(blueprint: unknown, schema: Schema): string[] {
       if (!extensions.includes(extname(runtime.entrypoint))) fail(`${agent.id}: ${runtime.language} entrypoint has an incompatible file extension`);
     }
   }
-  for (const tool of b.tools) if (tool.transport === 'mcp' && !tool.endpointEnv) fail(`${tool.id}: MCP tool needs endpointEnv`);
+  const nativeMcpRefs = new Set<string>();
+  for (const tool of b.tools) {
+    if (tool.transport === 'mcp' && !tool.endpointEnv) fail(`${tool.id}: MCP tool needs endpointEnv`);
+    if ((tool.nativeRefs || tool.resourceBindings) && tool.transport !== 'mcp') fail(`${tool.id}: nativeRefs and resourceBindings require MCP transport`);
+    if (tool.nativeRefs && tool.access !== 'read') fail(`${tool.id}: project workflow MCP tools must be read-only`);
+    if (tool.nativeRefs && !tool.resourceBindings?.length) fail(`${tool.id}: project workflow MCP tools need resourceBindings`);
+    for (const nativeRef of tool.nativeRefs ?? []) {
+      if (nativeMcpRefs.has(nativeRef)) fail(`${tool.id}: OpenBot MCP reference ${nativeRef} is already declared`);
+      nativeMcpRefs.add(nativeRef);
+    }
+    if (tool.resourceBindings) {
+      const artifacts = new Set(b.business?.artifactTypes.map(type => type.id) ?? []);
+      for (const binding of tool.resourceBindings) if (!artifacts.has(binding.artifactType)) fail(`${tool.id}: resource binding uses unknown artifact type ${binding.artifactType}`);
+    }
+  }
   for (const connection of b.connections) {
     ref('agents', connection.from, connection.id);
     ref('agents', connection.to, connection.id);

@@ -1,4 +1,4 @@
-import { condition, defineQuery, defineSignal, proxyActivities, setHandler } from '@temporalio/workflow';
+import { condition, defineQuery, defineSignal, proxyActivities, setHandler, sleep } from '@temporalio/workflow';
 import type { PhaseOutcome, PhaseRequest, RunInput, WorkflowActivities, WorkflowSnapshot } from './contracts.js';
 
 const activities = proxyActivities<WorkflowActivities>({
@@ -11,6 +11,7 @@ export const answerDecision = defineSignal<[string, unknown]>('answerDecision');
 export const reconcileUncertain = defineSignal('reconcileUncertain');
 export const snapshotQuery = defineQuery<WorkflowSnapshot>('snapshot');
 export const bindingQuery = defineQuery<RunInput>('binding');
+export const decisionQuery = defineQuery<{ found: boolean; value?: unknown }, [string]>('decision');
 
 /** The activity boundary must enforce OpenBot project policy and validate all outcomes. */
 export async function businessWorkflow(input: RunInput): Promise<WorkflowSnapshot> {
@@ -18,13 +19,16 @@ export async function businessWorkflow(input: RunInput): Promise<WorkflowSnapsho
   let state: WorkflowSnapshot = { phase: input.initialPhase, occurrence: 1, state: 'running' };
   let answer: { id: string; value: unknown } | undefined;
   const answered = new Set<string>();
+  const answerValues = new Map<string, unknown>();
   let reconcileRequested = false;
   setHandler(snapshotQuery, () => ({ ...state }));
   setHandler(bindingQuery, () => input);
+  setHandler(decisionQuery, id => answerValues.has(id) ? { found: true, value: answerValues.get(id) } : { found: false });
   setHandler(answerDecision, (id, value) => {
     if (state.state === 'waiting' && state.decisionId === id && !answer && !answered.has(id)) {
       answer = { id, value };
       answered.add(id);
+      answerValues.set(id, value);
     }
   });
   setHandler(reconcileUncertain, () => { if (state.state === 'uncertain') reconcileRequested = true; });
@@ -59,6 +63,7 @@ export async function businessWorkflow(input: RunInput): Promise<WorkflowSnapsho
     if (outcome.kind === 'complete') return state = { phase: request.phase, occurrence: request.occurrence, state: 'complete', result: outcome.result };
     if (!input.phaseIds.includes(outcome.nextPhase)) return state = { phase: request.phase, occurrence: request.occurrence, state: 'blocked', reason: 'The outcome referenced a phase outside the pinned plan.' };
     state = { phase: outcome.nextPhase, occurrence: request.occurrence + 1, state: 'running' };
+    if (outcome.delaySeconds) await sleep(outcome.delaySeconds * 1000);
   }
   return state = { ...state, state: 'blocked', reason: 'The workflow exceeded its phase limit.' };
 }

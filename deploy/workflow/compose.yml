@@ -1,5 +1,5 @@
-# Experimental overlay; the OpenBot activity adapter is not connected yet.
-# Use alongside the root compose file after setting the workflow secrets.
+# Experimental overlay; use alongside the root compose file after setting the
+# workflow secrets. The scoped activity adapter runs only supported phases.
 services:
   workflow-postgres:
     image: postgres:16.10
@@ -39,6 +39,7 @@ services:
     restart: unless-stopped
 
   workflow-worker:
+    image: ${WORKFLOW_WORKER_IMAGE:-${COMPOSE_PROJECT_NAME:-openbot-blueprint}-workflow-worker:local}
     build:
       context: ./deploy/workflow
       dockerfile: Dockerfile
@@ -52,6 +53,12 @@ services:
       OPENBOT_WORKFLOW_ACTIVITY_URL: http://server:3001
       WORKFLOW_ACTIVITY_TOKEN: ${WORKFLOW_ACTIVITY_TOKEN:?Set WORKFLOW_ACTIVITY_TOKEN}
       WORKFLOW_ENGINE_TOKEN: ${WORKFLOW_ENGINE_TOKEN:?Set WORKFLOW_ENGINE_TOKEN}
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4310/').then(r=>process.exit(r.status===401?0:1)).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 30s
     networks: [workflow]
     restart: unless-stopped
 

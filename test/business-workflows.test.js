@@ -18,7 +18,8 @@ for (const name of ['software-development', 'software-development-custom-bot']) 
     assert.equal(transition('verify', 'verified').when.decision, 'verify-only');
     assert.equal(transition('verify', 'prepare-release').when.decision, 'ship');
     assert.equal(transition('verify', 'prepare-release').when.equals, 'passed');
-    assert.ok(!feature.transitions.some(item => item.from === 'verify' && item.when.equals === 'pending'));
+    assert.equal(transition('verify', 'verify').when.equals, 'pending');
+    assert.equal(transition('verify', 'verify').when.decision, 'retry-qa');
     assert.equal(business.actions.find(action => action.id === 'deploy').approvalRequired, true);
     assert.ok(transition('prepare-release', 'deploy'));
     assert.ok(transition('deploy', 'released'));

@@ -1,0 +1,7 @@
+{
+  "name": "openbot-workspace-readiness-smoke",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "node --test" },
+  "engines": { "node": ">=22" }
+}

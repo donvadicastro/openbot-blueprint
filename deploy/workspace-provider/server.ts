@@ -50,7 +50,10 @@ export function workspaceServer(options: {
         if (typeof input.operationKey !== "string" || !/^[a-zA-Z0-9._:-]{1,200}$/.test(input.operationKey)) throw new Error("Invalid operation key.");
         if (request.url === "/run") {
           if (!Array.isArray(input.argv) || input.argv.length < 1 || input.argv.length > 128 || input.argv.some((value: unknown) => typeof value !== "string" || value.includes("\0") || value.length > 8192) || !input.argv[0]) throw new Error("Invalid action arguments.");
-          result = await provider.runAction(id, input.operationKey, input.argv);
+          if (input.qa !== undefined && (!input.qa || typeof input.qa !== 'object' || Array.isArray(input.qa) || Object.keys(input.qa).some(key => key !== 'revision') || typeof input.qa.revision !== 'string' || !/^[a-f0-9]{40,64}$/.test(input.qa.revision))) throw new Error('Invalid QA candidate binding.');
+          result = input.qa === undefined
+            ? await provider.runAction(id, input.operationKey, input.argv)
+            : await provider.runAction(id, input.operationKey, input.argv, input.qa);
         } else result = await provider.reconcileAction(id, input.operationKey);
       } else if (request.url === "/import") {
         if (typeof input.source !== "string") throw new Error("Choose a source folder.");
