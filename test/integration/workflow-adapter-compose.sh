@@ -47,7 +47,24 @@ services:
         condition: service_started
 EOF
 compose() { docker compose -p "$COMPOSE_PROJECT_NAME" -f "$root/docker-compose.yml" -f "$scratch/override.yml" "$@"; }
-cleanup() { docker rm -f "${COMPOSE_PROJECT_NAME}-restored-worker" "${COMPOSE_PROJECT_NAME}-restored-activity" "${COMPOSE_PROJECT_NAME}-temporal-restore" >/dev/null 2>&1 || true; docker network disconnect "${COMPOSE_PROJECT_NAME}-restore" "${COMPOSE_PROJECT_NAME}-workflow-postgres-1" >/dev/null 2>&1 || true; docker network disconnect "${COMPOSE_PROJECT_NAME}-restore" "${COMPOSE_PROJECT_NAME}-project-postgres-1" >/dev/null 2>&1 || true; docker network rm "${COMPOSE_PROJECT_NAME}-restore" >/dev/null 2>&1 || true; compose down -v --remove-orphans >/dev/null 2>&1 || true; if [ -n "$vm_pid" ]; then kill -TERM "$vm_pid" 2>/dev/null || true; wait "$vm_pid" 2>/dev/null || true; fi; if [ -n "$vm_directory" ]; then rm -rf "$vm_directory"; fi; rm -rf "$scratch"; }
+cleanup() {
+  result=$?
+  if [ "$result" -ne 0 ]; then
+    for service in restored-activity restored-worker temporal-restore; do
+      docker logs --tail 80 "${COMPOSE_PROJECT_NAME}-${service}" 2>&1 || true
+    done
+    compose logs --tail 80 workflow-fixture workflow-worker 2>&1 || true
+  fi
+  docker rm -f "${COMPOSE_PROJECT_NAME}-restored-worker" "${COMPOSE_PROJECT_NAME}-restored-activity" "${COMPOSE_PROJECT_NAME}-temporal-restore" >/dev/null 2>&1 || true
+  docker network disconnect "${COMPOSE_PROJECT_NAME}-restore" "${COMPOSE_PROJECT_NAME}-workflow-postgres-1" >/dev/null 2>&1 || true
+  docker network disconnect "${COMPOSE_PROJECT_NAME}-restore" "${COMPOSE_PROJECT_NAME}-project-postgres-1" >/dev/null 2>&1 || true
+  docker network rm "${COMPOSE_PROJECT_NAME}-restore" >/dev/null 2>&1 || true
+  compose down -v --remove-orphans >/dev/null 2>&1 || true
+  if [ -n "$vm_pid" ]; then kill -TERM "$vm_pid" 2>/dev/null || true; wait "$vm_pid" 2>/dev/null || true; fi
+  if [ -n "$vm_directory" ]; then rm -rf "$vm_directory"; fi
+  rm -rf "$scratch"
+  return "$result"
+}
 trap cleanup EXIT HUP INT TERM
 compose up -d --build workflow-worker
 attempt=0
