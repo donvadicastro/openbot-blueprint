@@ -15,7 +15,7 @@ import { savePhaseOutput } from "/app/server/src/product/phase-output.ts";
 import { recordPhaseResult } from "/app/server/src/product/phase-result.ts";
 import { applyPhaseResult } from "/app/server/src/product/phase-transition.ts";
 import { createPhaseExecutor } from "/app/server/src/product/phase-executor.ts";
-import { bindPhaseMcpTools, phaseMcpPointerValue } from "/app/server/src/product/phase-mcp.ts";
+import { authorizePhaseMcpCall, bindPhaseMcpTools, phaseMcpPointerValue } from "/app/server/src/product/phase-mcp.ts";
 import { reservePhaseWorkspace, runPhaseWorkspace } from "/app/server/src/product/phase-workspace.ts";
 import { recordQaProgress } from "/app/server/src/product/qa-progress.ts";
 import { readChatProjection } from "/app/server/src/product/chat-events.ts";
@@ -231,6 +231,9 @@ catch (error: any) { changedCompletedResultRejected = error.code === 'result_una
 if (!changedCompletedResultRejected) throw Error('completed workflow accepted a different result on replay');
 const chainDefinition = structuredClone(serviceDefinition);
 chainDefinition.version = '1.0.2';
+const repositoryReadTool = chainDefinition.tools.find((tool: any) => tool.id === 'repository-read');
+repositoryReadTool.nativeRefs = ['repo-server/read_file'];
+repositoryReadTool.resourceBindings = [{ argumentPath: '/path', artifactType: 'service-request', payloadPath: '/status' }];
 chainDefinition.agents.find((agent: any) => agent.id === 'lead').tools.push('test-runner', 'workspace-edit');
 chainDefinition.business.actions[0].results.push({ status: 'needs-input', requiredOutputTypes: [], requiredEvidence: [] });
 chainDefinition.business.roles.find((role: any) => role.id === 'coordinator').actions.push('review');
@@ -331,6 +334,16 @@ const nextPhase = await database.begin(tx => resolvePhaseActivity(tx, nextReques
 const [nextAttempt] = await database.unsafe<{ inputs: { type: string; revisionId: string }[] }>(`select input_revisions as inputs from bp_action_attempts
   where project_id=$1 and run_id=$2 and occurrence_id=$3 and attempt=1`, [chainProject.id, chainSelection.runId, nextPhase.occurrenceId]);
 if (nextPhase.actionId !== 'review' || nextAttempt.inputs[0]?.revisionId !== chainOutput.revisionId) throw Error('the next phase did not pin the accepted input revision');
+const databaseMcpGrant = { toolId: 'repository-read', nativeRef: 'repo-server/read_file', resourceBindings: repositoryReadTool.resourceBindings };
+let databaseConnectorCalls = 0;
+const databaseScopedMcp = bindPhaseMcpTools([{ ref: 'repo-server/read_file', execute: async args => { databaseConnectorCalls++; return `read:${(args as any).path}`; } }],
+  [databaseMcpGrant], (grant, args) => authorizePhaseMcpCall(serviceModule, nextRequest, 'lead', grant, args));
+if (databaseScopedMcp.length !== 1 || await databaseScopedMcp[0].execute({ path: 'ready' }) !== 'read:ready' || databaseConnectorCalls !== 1) {
+  throw Error('database-authorized MCP resource did not reach its exact connector');
+}
+if (!String(await databaseScopedMcp[0].execute({ path: 'another-project' })).startsWith('Refused.') || databaseConnectorCalls !== 1) {
+  throw Error('database authorization allowed an MCP resource outside the pinned artifact');
+}
 await database.unsafe(`insert into bp_artifact_revisions(project_id,artifact_id,id,digest,payload,created_by,created_at)
   select project_id,artifact_id,'newer-revision',digest,payload,created_by,created_at+interval '1 second'
   from bp_artifact_revisions where project_id=$1 and artifact_id=$2 and id=$3`, [chainProject.id, chainOutput.artifactId, chainOutput.revisionId]);
