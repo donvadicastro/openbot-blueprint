@@ -489,7 +489,7 @@ if (process.argv[2] === "server") {
       ]);
       const teamLead = projectTools.some(tool => tool.name === "project_workflows");
       const planningTool = teamLead ? [{ name: "project_prepare_workflow", ref: "project/project_prepare_workflow",
-        description: "Save a workflow interpretation for this request or return a clarification question. A saved plan has not started.",
+        description: "First call project_workflows to inspect published workflows. For a matching workflow, pass interpretation with exactly one key: workflowId, set to the exact published ID. For a question use only needsClarification. For a supported temporary plan use only temporary. Never send null or multiple choices. A saved plan has not started.",
         parameters: z.strictObject({ request: z.string().min(1).max(20000), interpretation: z.strictObject({ workflowId: z.string().optional(), needsClarification: z.string().optional(), temporary: z.unknown().optional() }) }),
         execute: async (args: unknown) => {
           if (!await stillAllowed()) return "Refused. This bot is not available.";

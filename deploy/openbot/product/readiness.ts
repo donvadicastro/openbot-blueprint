@@ -174,6 +174,7 @@ export function readinessOperations(module: ProductModule, probe?: ReadinessProb
           workspace: (workspace ?? null) as unknown as JsonValue,
         });
         const required = role.startupChecks;
+        let probeFailed = false;
         let result: Awaited<ReturnType<ReadinessProbe>> | undefined;
         if (probe && workspaceReady && !missingArtifacts.length) {
           try {
@@ -188,7 +189,7 @@ export function readinessOperations(module: ProductModule, probe?: ReadinessProb
               workspace: sourceScoped && !roleArtifacts.some(artifact => artifact.typeKey === "source-code") ? null : workspace ?? null,
             });
           } catch {
-            result = undefined;
+            probeFailed = true;
           }
         }
         const checks = Array.isArray(result?.checks) ? result.checks.filter(item => item && typeof item.id === "string" && item.id.length <= 200 &&
@@ -199,7 +200,9 @@ export function readinessOperations(module: ProductModule, probe?: ReadinessProb
         });
         const reason = missingArtifacts.length ? `Required artifacts are missing: ${missingArtifacts.join(", ")}.`
           : !workspaceReady ? workspaceReason
+            : probeFailed ? "The specialist turn failed to return a valid readiness report. Check the configured model and retry readiness."
             : !result ? "Waiting for the assigned bot to report readiness."
+              : checks.some(check => !check.passed) ? checks.find(check => !check.passed)!.evidence
               : !allChecksPassed ? (typeof result.reason === "string" && result.reason.trim() ? result.reason.slice(0, 4000) : "The assigned bot reported an incomplete readiness check.")
                 : undefined;
         reports.push({

@@ -164,7 +164,7 @@ export async function nativeProjectTools<T, U>(module: ProductModule, actor: Pro
   let isTeamLead = false;
   try { isTeamLead = JSON.parse(initial.text).isTeamLead === true; } catch { return []; }
   return [
-    { name: "project_context", ref: "project/project_context", description: "Read the project, role and visible setup inputs for this conversation. An unavailable input may be missing or inaccessible to the current user.", parameters,
+    { name: "project_context", ref: "project/project_context", description: "Read the project state, role and setup inputs visible to this role. An empty artifacts list means no inputs are visible to this role. Operational means required setup and readiness checks passed; do not infer that source is missing from an empty list.", parameters,
       execute: async (args: unknown) => (await invoke("project_context", args))!.text },
     { name: "project_memory", ref: "project/project_memory", description: memoryDescription, parameters,
       execute: async (args: unknown) => (await invoke("project_memory", args))!.text },

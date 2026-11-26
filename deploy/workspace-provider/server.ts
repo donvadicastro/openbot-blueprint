@@ -87,7 +87,14 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   if (!WORKSPACE_PROVIDER_TOKEN || !BLUEPRINT_INSTALLATION_ID || !PROJECTS_HOST_DIR) {
     throw new Error("Set WORKSPACE_PROVIDER_TOKEN, BLUEPRINT_INSTALLATION_ID, and PROJECTS_HOST_DIR.");
   }
+  const provider = new LimaWorkspaceProvider();
+  try {
+    await provider.command(["--version"]);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    throw new Error("Cannot find limactl. Install Lima on the host or set LIMACTL_PATH to its executable before starting the workspace provider.");
+  }
   workspaceServer({
-    token: WORKSPACE_PROVIDER_TOKEN, installationId: BLUEPRINT_INSTALLATION_ID, sourceRoot: PROJECTS_HOST_DIR,
+    provider, token: WORKSPACE_PROVIDER_TOKEN, installationId: BLUEPRINT_INSTALLATION_ID, sourceRoot: PROJECTS_HOST_DIR,
   }).listen(Number(process.env.WORKSPACE_PROVIDER_PORT ?? 4511), "127.0.0.1");
 }

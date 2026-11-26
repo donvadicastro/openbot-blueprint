@@ -22,7 +22,7 @@ export function createProductRoutes(module: ProductModule, requireUser: Middlewa
     });
   });
   const readiness = readinessOperations(module, channels.productReadiness);
-  const routes = new Hono<{ Variables: AppVariables }>();
+  const routes = new Hono<{ Variables: AppVariables; Bindings: { server?: { timeout(request: Request, seconds: number): void } } }>();
   routes.use("*", requireUser);
   routes.onError((error, context) => {
     if (error instanceof ProductError) return context.json({ error: error.message, code: error.code }, error.status);
@@ -88,6 +88,8 @@ export function createProductRoutes(module: ProductModule, requireUser: Middlewa
       throw new ProductError(422, "invalid_artifacts", "Supply the project artifacts.");
     }
     try {
+      // VM startup and five sequential specialist turns can exceed the HTTP idle timeout.
+      context.env?.server?.timeout(context.req.raw, 0);
       const project = await projects.initialize(context.var.actor, context.req.param("id"), body.artifacts);
       return context.json({ project, readiness: await readiness.refresh(context.var.actor, context.req.param("id")) });
     } catch (error) {
@@ -104,7 +106,10 @@ export function createProductRoutes(module: ProductModule, requireUser: Middlewa
       agents: definition.agents.map(({ id, name }) => ({ id, name })) });
   });
   routes.get("/:id/readiness", async context => context.json(await readiness.inspect(context.var.actor, context.req.param("id"))));
-  routes.post("/:id/readiness", async context => context.json(await readiness.refresh(context.var.actor, context.req.param("id"))));
+  routes.post("/:id/readiness", async context => {
+    context.env?.server?.timeout(context.req.raw, 0);
+    return context.json(await readiness.refresh(context.var.actor, context.req.param("id")));
+  });
   routes.post("/:id/archive", async context => context.json({ project: await archiveProject(module, context.var.actor, context.req.param("id")) }));
   routes.get("/:id/work-items", async context => context.json({ workItems: await listWorkItems(module, context.var.actor, context.req.param("id")) }));
   routes.get("/:id/work-items/:workItemId", async context => context.json({ workItem: await readWorkItem(module, context.var.actor, context.req.param("id"), context.req.param("workItemId")) }));

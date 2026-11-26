@@ -8,7 +8,11 @@ export function createNativeReadinessProbe(
 ): ReadinessProbe {
   return async input => {
     let workspaceEvidence: { verified: boolean; evidence: string } | undefined;
+    const workspaceRequired = input.checks.some(check => check.kind === "workspace-ready" || check.kind === "artifact-access");
     const instruction = [
+      workspaceRequired
+        ? "First call project_workspace_check with {} and wait for its result. Use that result for the workspace and source checks in your final report."
+        : "This role has no workspace checks.",
       "Check your readiness for the assigned project role. Return one raw JSON object with no Markdown fences or surrounding text:",
       '{"ready":boolean,"checks":[{"id":string,"passed":boolean,"evidence":string}],"reason":string}.',
       "Include exactly one result for every requested check. Report a check as failed if you cannot actually verify it; never infer access from a supplied location or claim you inspected something you did not inspect.",
@@ -16,14 +20,13 @@ export function createNativeReadinessProbe(
       "Only the checks listed below are required for this role. Do not add workspace or source access as a prerequisite when neither check is listed. Set ready to true if and only if every requested check passes.",
       "This report describes your own assigned role, not the whole team. A role-ready check asks whether you can perform that role; it does not require an existing readiness report or workspace access. This report helps create the readiness record, so do not wait for that record to exist.",
       "Return the report in your final assistant message as text. Do not use a state update to submit the report.",
-      "For project workspace and source checks, call the project_workspace_check tool. Report them as failed unless the tool verifies access.",
       JSON.stringify({ projectId: input.projectId, role: input.roleKey, checks: input.checks,
         artifacts: input.artifacts.map(({ typeKey, status }) => ({ typeKey, status })) }),
     ].join("\n");
     const { replyText } = await runTurn({
       ownerUserId: input.actorId, routineId: `project-readiness:${input.projectId}`,
       agentId: input.nativeBotId, threadId: mintThreadId(), instruction,
-      workspaceRequired: input.checks.some(check => check.kind === "workspace-ready" || check.kind === "artifact-access"),
+      workspaceRequired,
       checkWorkspace: async () => workspaceEvidence = verifyWorkspace
         ? await verifyWorkspace(input) : { verified: false, evidence: "Project-scoped workspace access is unavailable." },
     });
