@@ -1,0 +1,2565 @@
+{
+  "$schema": "../../schemas/blueprint.schema.json",
+  "schemaVersion": "1.0",
+  "id": "software-development-custom-bot",
+  "name": "Software Development with a Custom Implementer",
+  "version": "1.0.4",
+  "projectType": "software-development",
+  "description": "Development suite with a model-configurable LangGraph implementer registered through a local Docker Compose AG-UI endpoint.",
+  "entrypoint": "team-lead",
+  "intake": {
+    "welcomeMessage": "I\u2019m the Team Lead. Your starting artifacts are recorded. The Product Manager will use them to start discovery and follow up here.",
+    "handoffTo": "lead",
+    "form": true,
+    "discoveryBy": "product-manager"
+  },
+  "inputs": [
+    "User request, constraints and acceptance expectations",
+    "Repository location and base revision",
+    "Authorized tools, resources and execution budget"
+  ],
+  "outputs": [
+    "Reviewed implementation patch",
+    "Reproducible validation evidence",
+    "Delivery summary with limitations and next steps"
+  ],
+  "agents": [
+    {
+      "id": "team-lead",
+      "name": "Team Lead",
+      "role": "Team intake and communication",
+      "purpose": "Receive requests, clarify expectations and keep the user informed as the team works.",
+      "tier": "core",
+      "prompt": "prompts/team-lead.md",
+      "tools": [
+        "artifact-write"
+      ],
+      "resources": [
+        "requirements",
+        "artifacts"
+      ],
+      "environment": "coordination",
+      "deliverables": [
+        "Request brief and decision record",
+        "User-facing status and delivery summary"
+      ],
+      "runtime": {
+        "kind": "builtin"
+      }
+    },
+    {
+      "id": "lead",
+      "name": "Delivery Lead",
+      "role": "Orchestrator",
+      "purpose": "Turn the user request into a scoped plan and coordinate accountable delivery.",
+      "tier": "core",
+      "prompt": "prompts/lead.md",
+      "tools": [
+        "repository-read",
+        "artifact-write"
+      ],
+      "resources": [
+        "source",
+        "requirements",
+        "artifacts"
+      ],
+      "environment": "coordination",
+      "deliverables": [
+        "Intake brief and accepted requirements baseline",
+        "Delivery plan and final evidence summary"
+      ],
+      "runtime": {
+        "kind": "builtin"
+      },
+      "readiness": [
+        {
+          "id": "setup-confirmation",
+          "stage": "intake",
+          "instruction": "Record the user\u2019s explicit confirmation of the setup summary before the Team Lead sends new work."
+        }
+      ]
+    },
+    {
+      "id": "product-manager",
+      "name": "Product Manager",
+      "role": "Product strategy and prioritization",
+      "purpose": "Define the business outcome, prioritize scope and surface decisions for stakeholders.",
+      "tier": "core",
+      "prompt": "prompts/product-manager.md",
+      "tools": [
+        "artifact-write"
+      ],
+      "resources": [
+        "requirements",
+        "artifacts"
+      ],
+      "environment": "coordination",
+      "deliverables": [
+        "Product brief with outcomes and prioritized scope",
+        "Decision log with open questions and owners"
+      ],
+      "runtime": {
+        "kind": "builtin"
+      },
+      "readiness": [
+        {
+          "id": "approved-scope",
+          "stage": "assignment",
+          "instruction": "Confirm what the team is authorized to change or investigate, including consequential constraints."
+        }
+      ]
+    },
+    {
+      "id": "business-analyst",
+      "name": "Business Analyst",
+      "role": "Business requirements",
+      "purpose": "Turn prioritized scope into workflows, business rules and testable acceptance criteria.",
+      "tier": "core",
+      "prompt": "prompts/business-analyst.md",
+      "tools": [
+        "artifact-write"
+      ],
+      "resources": [
+        "requirements",
+        "artifacts"
+      ],
+      "environment": "coordination",
+      "deliverables": [
+        "Requirements baseline with workflows, business rules and edge cases",
+        "Acceptance criteria mapped to requirement IDs"
+      ],
+      "runtime": {
+        "kind": "builtin"
+      },
+      "readiness": [
+        {
+          "id": "product-brief",
+          "stage": "assignment",
+          "instruction": "Provide the prioritized product brief and decision log."
+        }
+      ]
+    },
+    {
+      "id": "architect",
+      "name": "Solution Architect",
+      "role": "Technical design",
+      "purpose": "Choose an implementation approach grounded in the existing system.",
+      "tier": "core",
+      "prompt": "prompts/architect.md",
+      "tools": [
+        "repository-read"
+      ],
+      "resources": [
+        "source",
+        "requirements"
+      ],
+      "environment": "coordination",
+      "deliverables": [
+        "Implementation design and tradeoffs",
+        "Interfaces, migration and verification plan"
+      ],
+      "runtime": {
+        "kind": "builtin"
+      },
+      "readiness": [
+        {
+          "id": "project",
+          "stage": "intake",
+          "instruction": "Provide the selected folder path inside the OpenBot project workspace.",
+          "question": "Where is the project?",
+          "format": "project-source"
+        },
+        {
+          "id": "base-revision",
+          "stage": "assignment",
+          "instruction": "Identify the approved branch, tag, commit, or explicitly approved default branch."
+        },
+        {
+          "id": "source-access",
+          "stage": "assignment",
+          "instruction": "Record a successful read of the exact project and revision with the intended bot\u2019s authorized tools. The receiving bot must recheck before doing the work."
+        },
+        {
+          "id": "requirements-baseline",
+          "stage": "assignment",
+          "instruction": "Provide the accepted scope and testable requirements, with requirement IDs when available."
+        }
+      ]
+    },
+    {
+      "id": "implementer",
+      "name": "Software Engineer",
+      "role": "Implementation",
+      "purpose": "Produce focused changes and meaningful implementation evidence.",
+      "tier": "core",
+      "prompt": "prompts/implementer.md",
+      "tools": [
+        "repository-read",
+        "workspace-edit",
+        "test-runner",
+        "artifact-write"
+      ],
+      "resources": [
+        "source",
+        "requirements",
+        "artifacts"
+      ],
+      "environment": "development",
+      "deliverables": [
+        "Patch tied to base revision",
+        "Test evidence and implementation notes"
+      ],
+      "runtime": {
+        "kind": "remote",
+        "protocol": "ag-ui",
+        "endpointEnv": "MANAGED_AGENT_AG_UI_URL"
+      },
+      "readiness": [
+        {
+          "id": "project",
+          "stage": "intake",
+          "instruction": "Provide the selected folder path inside the OpenBot project workspace.",
+          "question": "Where is the project?",
+          "format": "project-source"
+        },
+        {
+          "id": "base-revision",
+          "stage": "assignment",
+          "instruction": "Identify the approved branch, tag, commit, or explicitly approved default branch."
+        },
+        {
+          "id": "approved-scope",
+          "stage": "assignment",
+          "instruction": "Confirm what the team is authorized to change or investigate, including consequential constraints."
+        },
+        {
+          "id": "source-access",
+          "stage": "assignment",
+          "instruction": "Record a successful read of the exact project and revision with the intended bot\u2019s authorized tools. The receiving bot must recheck before doing the work."
+        },
+        {
+          "id": "requirements-baseline",
+          "stage": "assignment",
+          "instruction": "Provide the accepted scope and testable requirements, with requirement IDs when available."
+        },
+        {
+          "id": "workspace-access",
+          "stage": "assignment",
+          "instruction": "Confirm the intended bot can write to the isolated checkout for that project and revision. Record a tool-backed check and recheck before editing."
+        }
+      ]
+    },
+    {
+      "id": "reviewer",
+      "name": "Code Reviewer",
+      "role": "Independent review",
+      "purpose": "Find correctness, security and maintainability defects in the proposed changes.",
+      "tier": "core",
+      "prompt": "prompts/reviewer.md",
+      "tools": [
+        "repository-read",
+        "test-runner",
+        "artifact-write"
+      ],
+      "resources": [
+        "source",
+        "requirements",
+        "artifacts"
+      ],
+      "environment": "review",
+      "deliverables": [
+        "Review findings with severity and locations",
+        "Review verdict tied to revision"
+      ],
+      "runtime": {
+        "kind": "builtin"
+      },
+      "readiness": [
+        {
+          "id": "project",
+          "stage": "intake",
+          "instruction": "Provide the selected folder path inside the OpenBot project workspace.",
+          "question": "Where is the project?",
+          "format": "project-source"
+        },
+        {
+          "id": "candidate-revision",
+          "stage": "assignment",
+          "instruction": "Provide the exact candidate commit or patch and its base revision."
+        },
+        {
+          "id": "requirements-baseline",
+          "stage": "assignment",
+          "instruction": "Provide the accepted scope and testable requirements, with requirement IDs when available."
+        },
+        {
+          "id": "candidate-access",
+          "stage": "assignment",
+          "instruction": "Record that the intended bot can read the exact candidate or patch."
+        }
+      ]
+    },
+    {
+      "id": "qa",
+      "name": "Quality Engineer",
+      "role": "Acceptance verification",
+      "purpose": "Verify user-visible behavior and assemble reproducible acceptance evidence.",
+      "tier": "core",
+      "prompt": "prompts/qa.md",
+      "tools": [
+        "repository-read",
+        "test-runner",
+        "artifact-write"
+      ],
+      "resources": [
+        "source",
+        "requirements",
+        "artifacts"
+      ],
+      "environment": "review",
+      "deliverables": [
+        "Acceptance matrix and regression results",
+        "Release readiness verdict"
+      ],
+      "runtime": {
+        "kind": "builtin"
+      },
+      "readiness": [
+        {
+          "id": "target-environment",
+          "stage": "assignment",
+          "instruction": "Identify the applicable deployment or verification environment."
+        },
+        {
+          "id": "candidate-revision",
+          "stage": "assignment",
+          "instruction": "Provide the exact candidate commit or patch and its base revision."
+        },
+        {
+          "id": "requirements-baseline",
+          "stage": "assignment",
+          "instruction": "Provide the accepted scope and testable requirements, with requirement IDs when available."
+        },
+        {
+          "id": "verification-access",
+          "stage": "assignment",
+          "instruction": "Confirm access to the candidate and the intended test or verification environment."
+        }
+      ]
+    },
+    {
+      "id": "security",
+      "name": "Security Specialist",
+      "role": "Security review",
+      "purpose": "Assess sensitive data, authentication and exposed trust boundaries.",
+      "tier": "optional",
+      "prompt": "prompts/security.md",
+      "tools": [
+        "repository-read",
+        "test-runner",
+        "artifact-write"
+      ],
+      "resources": [
+        "source",
+        "requirements",
+        "artifacts"
+      ],
+      "environment": "review",
+      "deliverables": [
+        "Threat analysis and security findings"
+      ],
+      "activateWhen": "Authentication, authorization, sensitive data, dependency trust or externally exposed input changes.",
+      "runtime": {
+        "kind": "builtin"
+      },
+      "readiness": [
+        {
+          "id": "project",
+          "stage": "assignment",
+          "instruction": "Provide the selected folder path inside the OpenBot project workspace.",
+          "format": "project-source"
+        },
+        {
+          "id": "review-boundary",
+          "stage": "assignment",
+          "instruction": "Identify the sensitive features, data or trust boundaries in scope."
+        },
+        {
+          "id": "candidate-revision",
+          "stage": "assignment",
+          "instruction": "Provide the exact candidate commit or patch and its base revision."
+        },
+        {
+          "id": "candidate-access",
+          "stage": "assignment",
+          "instruction": "Record that the intended bot can inspect the exact candidate."
+        }
+      ]
+    },
+    {
+      "id": "ux",
+      "name": "UX Specialist",
+      "role": "User experience",
+      "purpose": "Review interaction design and accessibility for user-facing changes.",
+      "tier": "optional",
+      "prompt": "prompts/ux.md",
+      "tools": [
+        "repository-read",
+        "artifact-write"
+      ],
+      "resources": [
+        "source",
+        "requirements",
+        "artifacts"
+      ],
+      "environment": "coordination",
+      "deliverables": [
+        "Interaction and accessibility acceptance notes"
+      ],
+      "activateWhen": "New or materially changed user-facing workflows, interactions or accessibility requirements.",
+      "runtime": {
+        "kind": "builtin"
+      },
+      "readiness": [
+        {
+          "id": "design-reference",
+          "stage": "assignment",
+          "instruction": "Provide the exact design, prototype, or build reference."
+        }
+      ]
+    },
+    {
+      "id": "operations",
+      "name": "Release Engineer",
+      "role": "Release preparation and deployment",
+      "purpose": "Prepare approved candidates for release, deploy to the authorized target, and verify the result.",
+      "tier": "optional",
+      "prompt": "prompts/operations.md",
+      "tools": [
+        "repository-read",
+        "test-runner",
+        "artifact-write"
+      ],
+      "resources": [
+        "source",
+        "requirements",
+        "artifacts"
+      ],
+      "environment": "development",
+      "deliverables": [
+        "Rollout, rollback and observability plan"
+      ],
+      "activateWhen": "Infrastructure, schema migrations, deployment behavior or operational reliability changes.",
+      "runtime": {
+        "kind": "builtin"
+      },
+      "readiness": [
+        {
+          "id": "target-environment",
+          "stage": "assignment",
+          "instruction": "Identify the applicable deployment or verification environment."
+        },
+        {
+          "id": "change-authority",
+          "stage": "assignment",
+          "instruction": "Identify the rollout owner and authorized actions."
+        },
+        {
+          "id": "candidate-revision",
+          "stage": "assignment",
+          "instruction": "Provide the exact candidate commit or patch and its base revision."
+        },
+        {
+          "id": "operational-reference",
+          "stage": "assignment",
+          "instruction": "Provide the exact deployment, migration, or runbook reference."
+        }
+      ]
+    },
+    {
+      "id": "tech-writer",
+      "name": "Technical Writer",
+      "role": "Technical documentation",
+      "purpose": "Write or update documentation grounded in the specified source system and audience.",
+      "tier": "optional",
+      "activateWhen": "The request includes new or materially changed technical documentation.",
+      "prompt": "prompts/tech-writer.md",
+      "tools": [
+        "repository-read",
+        "artifact-write"
+      ],
+      "resources": [
+        "source",
+        "requirements",
+        "artifacts"
+      ],
+      "environment": "coordination",
+      "deliverables": [
+        "Documentation draft with source references and open questions"
+      ],
+      "runtime": {
+        "kind": "builtin"
+      },
+      "readiness": [
+        {
+          "id": "document-source",
+          "stage": "assignment",
+          "instruction": "Provide the source system URL and version, or the exact source files."
+        },
+        {
+          "id": "documentation-access",
+          "stage": "assignment",
+          "instruction": "Record a successful authorized read of the specified source with the intended bot\u2019s tools. The writer must recheck before drafting."
+        }
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "team-lead-to-lead",
+      "from": "team-lead",
+      "to": "lead",
+      "trigger": "The user confirms the setup summary and the Delivery Lead\u2019s readiness fields are resolved.",
+      "input": [
+        "Confirmed starting artifacts",
+        "Any details already supplied by the user"
+      ],
+      "output": [
+        "Delivery status and any decisions needed from the user"
+      ],
+      "onFailure": "Explain the blocker to the user and retain the request in the intake conversation."
+    },
+    {
+      "id": "lead-to-team-lead",
+      "from": "lead",
+      "to": "team-lead",
+      "trigger": "Delivery needs a user decision or has a meaningful update or final result.",
+      "input": [
+        "Request status and open decisions",
+        "Evidence, limitations and next steps"
+      ],
+      "output": [
+        "User-facing update and any resulting user decision"
+      ],
+      "onFailure": "Keep the evidence and report the communication blocker."
+    },
+    {
+      "id": "lead-to-product-manager",
+      "from": "lead",
+      "to": "product-manager",
+      "trigger": "The Delivery Lead receives the starting artifacts for core delivery or needs a scope decision.",
+      "input": [
+        "Confirmed project source and other available artifacts",
+        "Any context or open decisions already supplied by the user"
+      ],
+      "output": [
+        "Product brief with outcomes and prioritized scope",
+        "Decision log with open questions and owners",
+        "Status and next owner"
+      ],
+      "onFailure": "Return blocked or needs-rework with evidence to lead; stop on budget exhaustion."
+    },
+    {
+      "id": "product-manager-to-lead",
+      "from": "product-manager",
+      "to": "lead",
+      "trigger": "Assignment completed, needs rework, or is blocked.",
+      "input": [
+        "Product brief with outcomes and prioritized scope",
+        "Decision log with open questions and owners",
+        "Request ID and status"
+      ],
+      "output": [
+        "Lead decision and updated task state"
+      ],
+      "onFailure": "Stop and retain artifacts; do not bypass a failed gate."
+    },
+    {
+      "id": "lead-to-business-analyst",
+      "from": "lead",
+      "to": "business-analyst",
+      "trigger": "Lead has a product brief with enough scope and decisions to specify requirements.",
+      "input": [
+        "Prioritized product brief and decision log",
+        "Source requirements and constraints"
+      ],
+      "output": [
+        "Requirements baseline with workflows, business rules and edge cases",
+        "Acceptance criteria mapped to requirement IDs",
+        "Status and next owner"
+      ],
+      "onFailure": "Return blocked or needs-rework with evidence to lead; stop on budget exhaustion."
+    },
+    {
+      "id": "business-analyst-to-lead",
+      "from": "business-analyst",
+      "to": "lead",
+      "trigger": "Assignment completed, needs rework, or is blocked.",
+      "input": [
+        "Requirements baseline with workflows, business rules and edge cases",
+        "Acceptance criteria mapped to requirement IDs",
+        "Request ID and status"
+      ],
+      "output": [
+        "Lead decision and updated task state"
+      ],
+      "onFailure": "Stop and retain artifacts; do not bypass a failed gate."
+    },
+    {
+      "id": "lead-to-architect",
+      "from": "lead",
+      "to": "architect",
+      "trigger": "Lead assigns the relevant workflow stage.",
+      "input": [
+        "Accepted requirements baseline and mapped acceptance criteria",
+        "Base revision and prior-stage artifacts",
+        "Budget and capability grants"
+      ],
+      "output": [
+        "Implementation design and tradeoffs",
+        "Interfaces, migration and verification plan",
+        "Status and next owner"
+      ],
+      "onFailure": "Return blocked or needs-rework with evidence to lead; stop on budget exhaustion."
+    },
+    {
+      "id": "architect-to-lead",
+      "from": "architect",
+      "to": "lead",
+      "trigger": "Assignment completed, needs rework, or is blocked.",
+      "input": [
+        "Implementation design and tradeoffs",
+        "Interfaces, migration and verification plan",
+        "Revision and status"
+      ],
+      "output": [
+        "Lead decision and updated task state"
+      ],
+      "onFailure": "Stop and retain artifacts; do not bypass a failed gate."
+    },
+    {
+      "id": "lead-to-implementer",
+      "from": "lead",
+      "to": "implementer",
+      "trigger": "Lead assigns the relevant workflow stage.",
+      "input": [
+        "Scoped task and acceptance criteria",
+        "Base revision and prior-stage artifacts",
+        "Budget and capability grants"
+      ],
+      "output": [
+        "Patch tied to base revision",
+        "Test evidence and implementation notes",
+        "Status and next owner"
+      ],
+      "onFailure": "Return blocked or needs-rework with evidence to lead; stop on budget exhaustion."
+    },
+    {
+      "id": "implementer-to-lead",
+      "from": "implementer",
+      "to": "lead",
+      "trigger": "Assignment completed, needs rework, or is blocked.",
+      "input": [
+        "Patch tied to base revision",
+        "Test evidence and implementation notes",
+        "Revision and status"
+      ],
+      "output": [
+        "Lead decision and updated task state"
+      ],
+      "onFailure": "Stop and retain artifacts; do not bypass a failed gate."
+    },
+    {
+      "id": "lead-to-reviewer",
+      "from": "lead",
+      "to": "reviewer",
+      "trigger": "Lead assigns the relevant workflow stage.",
+      "input": [
+        "Scoped task and acceptance criteria",
+        "Base revision and prior-stage artifacts",
+        "Budget and capability grants"
+      ],
+      "output": [
+        "Review findings with severity and locations",
+        "Review verdict tied to revision",
+        "Status and next owner"
+      ],
+      "onFailure": "Return blocked or needs-rework with evidence to lead; stop on budget exhaustion."
+    },
+    {
+      "id": "reviewer-to-lead",
+      "from": "reviewer",
+      "to": "lead",
+      "trigger": "Assignment completed, needs rework, or is blocked.",
+      "input": [
+        "Review findings with severity and locations",
+        "Review verdict tied to revision",
+        "Revision and status"
+      ],
+      "output": [
+        "Lead decision and updated task state"
+      ],
+      "onFailure": "Stop and retain artifacts; do not bypass a failed gate."
+    },
+    {
+      "id": "lead-to-qa",
+      "from": "lead",
+      "to": "qa",
+      "trigger": "Lead assigns the relevant workflow stage.",
+      "input": [
+        "Accepted requirements baseline and mapped acceptance criteria",
+        "Base revision and prior-stage artifacts",
+        "Budget and capability grants"
+      ],
+      "output": [
+        "Acceptance matrix and regression results",
+        "Release readiness verdict",
+        "Status and next owner"
+      ],
+      "onFailure": "Return blocked or needs-rework with evidence to lead; stop on budget exhaustion."
+    },
+    {
+      "id": "qa-to-lead",
+      "from": "qa",
+      "to": "lead",
+      "trigger": "Assignment completed, needs rework, or is blocked.",
+      "input": [
+        "Acceptance matrix and regression results",
+        "Release readiness verdict",
+        "Revision and status"
+      ],
+      "output": [
+        "Lead decision and updated task state"
+      ],
+      "onFailure": "Stop and retain artifacts; do not bypass a failed gate."
+    },
+    {
+      "id": "lead-to-security",
+      "from": "lead",
+      "to": "security",
+      "trigger": "Authentication, authorization, sensitive data, dependency trust or externally exposed input changes.",
+      "input": [
+        "Scoped task and acceptance criteria",
+        "Base revision and prior-stage artifacts",
+        "Budget and capability grants"
+      ],
+      "output": [
+        "Threat analysis and security findings",
+        "Status and next owner"
+      ],
+      "onFailure": "Return blocked or needs-rework with evidence to lead; stop on budget exhaustion."
+    },
+    {
+      "id": "security-to-lead",
+      "from": "security",
+      "to": "lead",
+      "trigger": "Assignment completed, needs rework, or is blocked.",
+      "input": [
+        "Threat analysis and security findings",
+        "Revision and status"
+      ],
+      "output": [
+        "Lead decision and updated task state"
+      ],
+      "onFailure": "Stop and retain artifacts; do not bypass a failed gate."
+    },
+    {
+      "id": "lead-to-ux",
+      "from": "lead",
+      "to": "ux",
+      "trigger": "New or materially changed user-facing workflows, interactions or accessibility requirements.",
+      "input": [
+        "Scoped task and acceptance criteria",
+        "Base revision and prior-stage artifacts",
+        "Budget and capability grants"
+      ],
+      "output": [
+        "Interaction and accessibility acceptance notes",
+        "Status and next owner"
+      ],
+      "onFailure": "Return blocked or needs-rework with evidence to lead; stop on budget exhaustion."
+    },
+    {
+      "id": "ux-to-lead",
+      "from": "ux",
+      "to": "lead",
+      "trigger": "Assignment completed, needs rework, or is blocked.",
+      "input": [
+        "Interaction and accessibility acceptance notes",
+        "Revision and status"
+      ],
+      "output": [
+        "Lead decision and updated task state"
+      ],
+      "onFailure": "Stop and retain artifacts; do not bypass a failed gate."
+    },
+    {
+      "id": "lead-to-operations",
+      "from": "lead",
+      "to": "operations",
+      "trigger": "Infrastructure, schema migrations, deployment behavior or operational reliability changes.",
+      "input": [
+        "Scoped task and acceptance criteria",
+        "Base revision and prior-stage artifacts",
+        "Budget and capability grants"
+      ],
+      "output": [
+        "Rollout, rollback and observability plan",
+        "Status and next owner"
+      ],
+      "onFailure": "Return blocked or needs-rework with evidence to lead; stop on budget exhaustion."
+    },
+    {
+      "id": "operations-to-lead",
+      "from": "operations",
+      "to": "lead",
+      "trigger": "Assignment completed, needs rework, or is blocked.",
+      "input": [
+        "Rollout, rollback and observability plan",
+        "Revision and status"
+      ],
+      "output": [
+        "Lead decision and updated task state"
+      ],
+      "onFailure": "Stop and retain artifacts; do not bypass a failed gate."
+    },
+    {
+      "id": "lead-to-tech-writer",
+      "from": "lead",
+      "to": "tech-writer",
+      "trigger": "The request includes new or materially changed technical documentation.",
+      "input": [
+        "Confirmed source and version",
+        "Audience and documentation destination",
+        "Source access evidence"
+      ],
+      "output": [
+        "Documentation draft with source references and open questions"
+      ],
+      "onFailure": "Return the missing context or access blocker to the Delivery Lead."
+    },
+    {
+      "id": "tech-writer-to-lead",
+      "from": "tech-writer",
+      "to": "lead",
+      "trigger": "Documentation is ready for review or needs clarification.",
+      "input": [
+        "Documentation draft with source references and open questions"
+      ],
+      "output": [
+        "Review decision or request for clarification"
+      ],
+      "onFailure": "Retain the draft and tell the Delivery Lead what is blocked."
+    }
+  ],
+  "tools": [
+    {
+      "id": "repository-read",
+      "description": "Inspect repository files, history and diffs.",
+      "transport": "mcp",
+      "endpointEnv": "REPOSITORY_MCP_URL",
+      "credentialEnv": "REPOSITORY_TOKEN",
+      "capabilities": [
+        "files.read",
+        "git.diff",
+        "git.log"
+      ],
+      "access": "read",
+      "setup": "Register a repository MCP server and grant read access only to the assigned repository."
+    },
+    {
+      "id": "workspace-edit",
+      "description": "Edit files in the assigned isolated workspace.",
+      "transport": "native",
+      "capabilities": [
+        "files.write",
+        "git.patch"
+      ],
+      "access": "write",
+      "setup": "Runner provides a per-task writable checkout; do not grant host-wide filesystem access."
+    },
+    {
+      "id": "test-runner",
+      "description": "Run project checks in an isolated execution environment.",
+      "transport": "native",
+      "capabilities": [
+        "process.execute"
+      ],
+      "access": "execute",
+      "setup": "Runner provisions a container with the project toolchain; review/QA get independent disposable checkouts."
+    },
+    {
+      "id": "artifact-write",
+      "description": "Store task evidence and handoff artifacts.",
+      "transport": "native",
+      "capabilities": [
+        "artifacts.write"
+      ],
+      "access": "write",
+      "setup": "Provide a request-scoped artifact store; prevent cross-request access."
+    }
+  ],
+  "resources": [
+    {
+      "id": "source",
+      "description": "Assigned repository and revision.",
+      "kind": "repository",
+      "location": "${PROJECT_REPOSITORY}",
+      "access": "read"
+    },
+    {
+      "id": "requirements",
+      "description": "Task brief, stakeholder context and existing requirements.",
+      "kind": "documentation",
+      "location": "${PROJECT_BRIEF_URI}",
+      "access": "read"
+    },
+    {
+      "id": "artifacts",
+      "description": "Request-scoped requirements, patches, reviews and verification evidence.",
+      "kind": "artifact-store",
+      "location": "${ARTIFACT_STORE_URI}",
+      "access": "write"
+    }
+  ],
+  "environments": [
+    {
+      "id": "coordination",
+      "isolation": "none",
+      "workspace": "Not applicable; use granted remote read tools and artifact services.",
+      "network": "disabled",
+      "allowedHosts": [],
+      "cpu": 0,
+      "memoryMb": 0,
+      "setup": "No shell or computer required. Network restrictions describe local compute, not brokered tool calls."
+    },
+    {
+      "id": "development",
+      "isolation": "container",
+      "workspace": "/workspace/${REQUEST_ID}/${AGENT_ID}",
+      "network": "allowlist",
+      "allowedHosts": [
+        "${APPROVED_PACKAGE_HOST}"
+      ],
+      "cpu": 2,
+      "memoryMb": 4096,
+      "setup": "Provision one container and branch/worktree per task. Resolve approved hosts explicitly; do not mount credentials or the Docker socket."
+    },
+    {
+      "id": "review",
+      "isolation": "container",
+      "workspace": "/workspace/${REQUEST_ID}/${AGENT_ID}",
+      "network": "disabled",
+      "allowedHosts": [],
+      "cpu": 2,
+      "memoryMb": 4096,
+      "setup": "Provision independent checkouts of the candidate revision with preinstalled dependencies; source patch editing is not granted."
+    }
+  ],
+  "workflow": [
+    {
+      "id": "intake",
+      "owner": "lead",
+      "dependsOn": [],
+      "instructions": "Start from the supplied artifacts and use Product Manager discovery to clarify scope, success criteria and constraints.",
+      "gates": [
+        "intake-accepted"
+      ],
+      "onFailure": "Return evidence to lead. Rework affected stages and rerun dependent gates; stop at the execution budget."
+    },
+    {
+      "id": "define-product-scope",
+      "owner": "product-manager",
+      "dependsOn": [
+        "intake"
+      ],
+      "instructions": "Define the business outcome and prioritize scope. Record stakeholder decisions and route unresolved scope decisions to the lead.",
+      "gates": [
+        "product-scope-accepted"
+      ],
+      "onFailure": "Return evidence to lead. Rework affected stages and rerun dependent gates; stop at the execution budget."
+    },
+    {
+      "id": "specify-requirements",
+      "owner": "business-analyst",
+      "dependsOn": [
+        "define-product-scope"
+      ],
+      "instructions": "Translate the prioritized scope into requirements with stable IDs, business rules, edge cases and measurable acceptance criteria.",
+      "gates": [
+        "requirements-accepted"
+      ],
+      "onFailure": "Return evidence to lead. Rework affected stages and rerun dependent gates; stop at the execution budget."
+    },
+    {
+      "id": "design",
+      "owner": "architect",
+      "dependsOn": [
+        "specify-requirements"
+      ],
+      "instructions": "Inspect the codebase and design a solution against the accepted requirements baseline.",
+      "gates": [
+        "design-accepted"
+      ],
+      "onFailure": "Return evidence to lead. Rework affected stages and rerun dependent gates; stop at the execution budget."
+    },
+    {
+      "id": "implement",
+      "owner": "implementer",
+      "dependsOn": [
+        "design"
+      ],
+      "instructions": "Implement against the accepted scope in an isolated workspace.",
+      "gates": [
+        "implement-accepted"
+      ],
+      "onFailure": "Return evidence to lead. Rework affected stages and rerun dependent gates; stop at the execution budget."
+    },
+    {
+      "id": "review",
+      "owner": "reviewer",
+      "dependsOn": [
+        "implement"
+      ],
+      "instructions": "Review the exact proposed revision independently.",
+      "gates": [
+        "review-accepted"
+      ],
+      "onFailure": "Return evidence to lead. Rework affected stages and rerun dependent gates; stop at the execution budget."
+    },
+    {
+      "id": "verify",
+      "owner": "qa",
+      "dependsOn": [
+        "review"
+      ],
+      "instructions": "Map verification evidence to the accepted requirements and check regressions against the reviewed revision.",
+      "gates": [
+        "verify-accepted"
+      ],
+      "onFailure": "Return evidence to lead. Rework affected stages and rerun dependent gates; stop at the execution budget."
+    },
+    {
+      "id": "deliver",
+      "owner": "lead",
+      "dependsOn": [
+        "verify"
+      ],
+      "instructions": "Confirm all evidence matches the final revision and report the result.",
+      "gates": [
+        "deliver-accepted"
+      ],
+      "onFailure": "Return evidence to lead. Rework affected stages and rerun dependent gates; stop at the execution budget."
+    }
+  ],
+  "qualityGates": [
+    {
+      "id": "intake-accepted",
+      "owner": "lead",
+      "criteria": [
+        "Requested outcome, constraints and consequential unknowns are recorded",
+        "Risk triggers and specialist activation are assessed"
+      ],
+      "evidence": [
+        "Request brief"
+      ],
+      "onFailure": "Block progression. Lead assigns rework, invalidates downstream approvals and retries within maxReworkCycles; otherwise report blocked."
+    },
+    {
+      "id": "product-scope-accepted",
+      "owner": "product-manager",
+      "criteria": [
+        "Business outcome, affected users and prioritized in-scope and out-of-scope items are explicit",
+        "Scope-blocking decisions are resolved and any claimed stakeholder confirmation is supported by evidence"
+      ],
+      "evidence": [
+        "Product brief with outcomes and prioritized scope",
+        "Decision log with open questions and owners"
+      ],
+      "onFailure": "Block progression. Lead assigns rework, invalidates downstream approvals and retries within maxReworkCycles; otherwise report blocked."
+    },
+    {
+      "id": "requirements-accepted",
+      "owner": "business-analyst",
+      "criteria": [
+        "Requirements trace to the prioritized scope and cover relevant workflows, rules and exceptions",
+        "Each in-scope requirement has testable acceptance criteria and no unresolved ambiguity blocks design"
+      ],
+      "evidence": [
+        "Requirements baseline with workflows, business rules and edge cases",
+        "Acceptance criteria mapped to requirement IDs"
+      ],
+      "onFailure": "Block progression. Lead assigns rework, invalidates downstream approvals and retries within maxReworkCycles; otherwise report blocked."
+    },
+    {
+      "id": "design-accepted",
+      "owner": "architect",
+      "criteria": [
+        "Design follows existing conventions",
+        "Risks, compatibility and verification approach are addressed"
+      ],
+      "evidence": [
+        "Design notes",
+        "Relevant code references"
+      ],
+      "onFailure": "Block progression. Lead assigns rework, invalidates downstream approvals and retries within maxReworkCycles; otherwise report blocked."
+    },
+    {
+      "id": "implement-accepted",
+      "owner": "implementer",
+      "criteria": [
+        "Patch addresses acceptance criteria",
+        "Relevant implementation checks pass or gaps are recorded for resolution"
+      ],
+      "evidence": [
+        "Patch and base revision",
+        "Commands and check results"
+      ],
+      "onFailure": "Block progression. Lead assigns rework, invalidates downstream approvals and retries within maxReworkCycles; otherwise report blocked."
+    },
+    {
+      "id": "review-accepted",
+      "owner": "reviewer",
+      "criteria": [
+        "No unresolved blocking findings",
+        "Review verdict references the proposed revision"
+      ],
+      "evidence": [
+        "Review findings and verdict"
+      ],
+      "onFailure": "Block progression. Lead assigns rework, invalidates downstream approvals and retries within maxReworkCycles; otherwise report blocked."
+    },
+    {
+      "id": "verify-accepted",
+      "owner": "qa",
+      "criteria": [
+        "Acceptance criteria pass with evidence mapped to each in-scope requirement ID",
+        "Consequential unverified behavior is resolved before readiness"
+      ],
+      "evidence": [
+        "Acceptance matrix",
+        "Test logs and verification revision"
+      ],
+      "onFailure": "Block progression. Lead assigns rework, invalidates downstream approvals and retries within maxReworkCycles; otherwise report blocked."
+    },
+    {
+      "id": "deliver-accepted",
+      "owner": "lead",
+      "criteria": [
+        "Review and QA approved the same final revision",
+        "Changes, verification, residual risks and authorization requirements are explicit"
+      ],
+      "evidence": [
+        "Delivery summary",
+        "Artifact index"
+      ],
+      "onFailure": "Block progression. Lead assigns rework, invalidates downstream approvals and retries within maxReworkCycles; otherwise report blocked."
+    }
+  ],
+  "extensionPolicy": {
+    "strategy": "additive",
+    "rules": [
+      "Core roles are a recommended baseline, not an exhaustive roster.",
+      "Add domain specialists with explicit activation triggers, prompts, handoff contracts and grants.",
+      "Lead records why a specialist was activated and integrates its findings into the relevant quality gate.",
+      "Parallelize independent assignments only; changes to a revision invalidate dependent review evidence.",
+      "Version blueprint changes; preserve the independent implementation, review and verification responsibilities."
+    ]
+  },
+  "executionPolicy": {
+    "maxConcurrentAgents": 3,
+    "maxHandoffs": 30,
+    "maxReworkCycles": 2,
+    "timeoutMinutes": 120,
+    "approvalRequiredFor": [
+      "Publishing or deployment outside existing request authorization",
+      "Destructive changes outside the task scope",
+      "New external spending or privileged access"
+    ],
+    "onBudgetExceeded": "Stop new delegation, retain completed evidence and report the remaining blockers to the user."
+  },
+  "extensions": {},
+  "deployment": {
+    "runtime": "openbot",
+    "environmentFile": "deployment/.env.example",
+    "files": [
+      "deployment/compose.custom-bot.yml",
+      "deployment/compose.host-access.yml",
+      "deployment/implementer.env.example",
+      "README.md"
+    ]
+  },
+  "business": {
+    "teamLeadRole": "team-lead",
+    "roles": [
+      {
+        "id": "team-lead",
+        "agentId": "team-lead",
+        "responsibility": "Clarify goals, coordinate the team and report outcomes.",
+        "actions": [
+          "clarify"
+        ],
+        "startupChecks": [
+          {
+            "id": "role-ready",
+            "description": "Confirm this role is available.",
+            "kind": "role-ready"
+          }
+        ],
+        "viewId": "team-lead-view"
+      },
+      {
+        "id": "pm",
+        "agentId": "product-manager",
+        "responsibility": "Discover outcomes and define acceptance criteria.",
+        "actions": [
+          "discover"
+        ],
+        "startupChecks": [
+          {
+            "id": "role-ready",
+            "description": "Confirm this role is available.",
+            "kind": "role-ready"
+          }
+        ],
+        "viewId": "pm-view"
+      },
+      {
+        "id": "engineer",
+        "agentId": "implementer",
+        "responsibility": "Implement a verified candidate in the project VM.",
+        "actions": [
+          "implement"
+        ],
+        "startupChecks": [
+          {
+            "id": "role-ready",
+            "description": "Confirm this role is available.",
+            "kind": "role-ready"
+          },
+          {
+            "id": "source-access",
+            "description": "Verify project source access.",
+            "kind": "artifact-access",
+            "artifactType": "source-code"
+          },
+          {
+            "id": "workspace-ready",
+            "description": "Verify project VM access.",
+            "kind": "workspace-ready"
+          }
+        ],
+        "viewId": "engineer-view"
+      },
+      {
+        "id": "qa",
+        "agentId": "qa",
+        "responsibility": "Plan and execute acceptance testing against the exact candidate.",
+        "actions": [
+          "verify"
+        ],
+        "startupChecks": [
+          {
+            "id": "role-ready",
+            "description": "Confirm this role is available.",
+            "kind": "role-ready"
+          },
+          {
+            "id": "source-access",
+            "description": "Verify project source access.",
+            "kind": "artifact-access",
+            "artifactType": "source-code"
+          },
+          {
+            "id": "workspace-ready",
+            "description": "Verify project VM access.",
+            "kind": "workspace-ready"
+          }
+        ],
+        "viewId": "qa-view"
+      },
+      {
+        "id": "release",
+        "agentId": "operations",
+        "responsibility": "Prepare approved releases and verify deployment.",
+        "actions": [
+          "prepare-release",
+          "deploy"
+        ],
+        "startupChecks": [
+          {
+            "id": "role-ready",
+            "description": "Confirm this role is available.",
+            "kind": "role-ready"
+          },
+          {
+            "id": "source-access",
+            "description": "Verify project source access.",
+            "kind": "artifact-access",
+            "artifactType": "source-code"
+          },
+          {
+            "id": "workspace-ready",
+            "description": "Verify project VM access.",
+            "kind": "workspace-ready"
+          }
+        ],
+        "viewId": "release-view"
+      }
+    ],
+    "artifactTypes": [
+      {
+        "id": "source-code",
+        "description": "source code",
+        "owner": "engineer",
+        "producers": [
+          "engineer"
+        ],
+        "consumers": [
+          "engineer",
+          "qa",
+          "release"
+        ],
+        "schema": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "minLength": 1
+            },
+            "revision": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "path"
+          ],
+          "additionalProperties": false
+        },
+        "states": [
+          "draft",
+          "verified"
+        ],
+        "relationships": []
+      },
+      {
+        "id": "change-brief",
+        "description": "change brief",
+        "owner": "pm",
+        "producers": [
+          "pm"
+        ],
+        "consumers": [
+          "engineer",
+          "pm",
+          "qa"
+        ],
+        "schema": {
+          "type": "object",
+          "properties": {
+            "scope": {
+              "type": "string",
+              "minLength": 1
+            },
+            "scenarios": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "required": [
+                  "id",
+                  "expected"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "expected": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "required": [
+            "scope",
+            "scenarios"
+          ]
+        },
+        "states": [
+          "draft",
+          "verified"
+        ],
+        "relationships": []
+      },
+      {
+        "id": "candidate",
+        "description": "candidate",
+        "owner": "engineer",
+        "producers": [
+          "engineer"
+        ],
+        "consumers": [
+          "engineer",
+          "qa",
+          "release"
+        ],
+        "schema": {
+          "type": "object",
+          "properties": {
+            "revision": {
+              "type": "string",
+              "minLength": 1
+            },
+            "briefRevision": {
+              "type": "string",
+              "minLength": 1
+            },
+            "sourceRevision": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "revision",
+            "briefRevision",
+            "sourceRevision"
+          ],
+          "additionalProperties": false
+        },
+        "states": [
+          "draft",
+          "verified"
+        ],
+        "relationships": []
+      },
+      {
+        "id": "test-plan",
+        "description": "test plan",
+        "owner": "qa",
+        "producers": [
+          "qa"
+        ],
+        "consumers": [
+          "qa"
+        ],
+        "schema": {
+          "type": "object",
+          "properties": {
+            "candidateRevision": {
+              "type": "string"
+            },
+            "scenarios": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "required": [
+                  "id",
+                  "steps",
+                  "expected"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "steps": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "expected": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "briefRevision": {
+              "type": "string",
+              "minLength": 1
+            },
+            "environment": {
+              "type": "string",
+              "minLength": 1
+            },
+            "prerequisites": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "required": [
+            "candidateRevision",
+            "briefRevision",
+            "environment",
+            "prerequisites",
+            "scenarios"
+          ],
+          "additionalProperties": false
+        },
+        "states": [
+          "draft",
+          "verified"
+        ],
+        "relationships": []
+      },
+      {
+        "id": "qa-evidence",
+        "description": "qa evidence",
+        "owner": "qa",
+        "producers": [
+          "qa"
+        ],
+        "consumers": [
+          "qa",
+          "release"
+        ],
+        "schema": {
+          "type": "object",
+          "properties": {
+            "candidateRevision": {
+              "type": "string",
+              "minLength": 1
+            },
+            "briefRevision": {
+              "type": "string",
+              "minLength": 1
+            },
+            "planRevision": {
+              "type": "string",
+              "minLength": 1
+            },
+            "environment": {
+              "type": "string",
+              "minLength": 1
+            },
+            "verdict": {
+              "type": "string",
+              "enum": [
+                "passed",
+                "failed",
+                "pending"
+              ]
+            },
+            "results": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "passed",
+                      "failed",
+                      "blocked",
+                      "not-run"
+                    ]
+                  },
+                  "observed": {
+                    "type": "string"
+                  },
+                  "reason": {
+                    "type": "string"
+                  },
+                  "evidence": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                },
+                "required": [
+                  "id",
+                  "status"
+                ],
+                "additionalProperties": false,
+                "oneOf": [
+                  {
+                    "properties": {
+                      "status": {
+                        "const": "passed"
+                      }
+                    },
+                    "required": [
+                      "status",
+                      "observed"
+                    ]
+                  },
+                  {
+                    "properties": {
+                      "status": {
+                        "const": "failed"
+                      }
+                    },
+                    "required": [
+                      "status",
+                      "observed"
+                    ]
+                  },
+                  {
+                    "properties": {
+                      "status": {
+                        "const": "blocked"
+                      }
+                    },
+                    "required": [
+                      "status",
+                      "reason"
+                    ]
+                  },
+                  {
+                    "properties": {
+                      "status": {
+                        "const": "not-run"
+                      }
+                    },
+                    "required": [
+                      "status",
+                      "reason"
+                    ]
+                  }
+                ]
+              }
+            },
+            "passPercentage": {
+              "type": "number",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "candidateRevision",
+            "briefRevision",
+            "planRevision",
+            "environment",
+            "verdict",
+            "results",
+            "passPercentage"
+          ],
+          "additionalProperties": false
+        },
+        "states": [
+          "draft",
+          "verified"
+        ],
+        "relationships": []
+      },
+      {
+        "id": "release-runbook",
+        "description": "release runbook",
+        "owner": "release",
+        "producers": [
+          "release"
+        ],
+        "consumers": [
+          "release"
+        ],
+        "schema": {
+          "type": "object",
+          "properties": {
+            "procedure": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "procedure"
+          ]
+        },
+        "states": [
+          "draft",
+          "verified"
+        ],
+        "relationships": []
+      },
+      {
+        "id": "release-target",
+        "description": "release target",
+        "owner": "release",
+        "producers": [
+          "release"
+        ],
+        "consumers": [
+          "release"
+        ],
+        "schema": {
+          "type": "object",
+          "properties": {
+            "url": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "url"
+          ]
+        },
+        "states": [
+          "draft",
+          "verified"
+        ],
+        "relationships": []
+      },
+      {
+        "id": "deployment-evidence",
+        "description": "deployment evidence",
+        "owner": "release",
+        "producers": [
+          "release"
+        ],
+        "consumers": [
+          "release",
+          "team-lead"
+        ],
+        "schema": {
+          "type": "object",
+          "properties": {
+            "candidateRevision": {
+              "type": "string"
+            },
+            "target": {
+              "type": "string"
+            },
+            "receipt": {
+              "type": "string"
+            },
+            "verified": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "candidateRevision",
+            "target",
+            "receipt",
+            "verified"
+          ]
+        },
+        "states": [
+          "draft",
+          "verified"
+        ],
+        "relationships": []
+      },
+      {
+        "id": "request-brief",
+        "description": "request brief",
+        "owner": "team-lead",
+        "producers": [
+          "team-lead"
+        ],
+        "consumers": [
+          "pm",
+          "team-lead"
+        ],
+        "schema": {
+          "type": "object",
+          "properties": {
+            "objective": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "objective"
+          ]
+        },
+        "states": [
+          "draft",
+          "verified"
+        ],
+        "relationships": []
+      },
+      {
+        "id": "ci-cd",
+        "description": "ci cd",
+        "owner": "engineer",
+        "producers": [
+          "engineer"
+        ],
+        "consumers": [
+          "engineer"
+        ],
+        "schema": {
+          "type": "object",
+          "properties": {
+            "reference": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "reference"
+          ]
+        },
+        "states": [
+          "draft",
+          "verified"
+        ],
+        "relationships": []
+      },
+      {
+        "id": "test-environment",
+        "description": "test environment",
+        "owner": "qa",
+        "producers": [
+          "qa"
+        ],
+        "consumers": [
+          "qa"
+        ],
+        "schema": {
+          "type": "object",
+          "properties": {
+            "reference": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "reference"
+          ]
+        },
+        "states": [
+          "draft",
+          "verified"
+        ],
+        "relationships": []
+      },
+      {
+        "id": "live-environment",
+        "description": "live environment",
+        "owner": "release",
+        "producers": [
+          "release"
+        ],
+        "consumers": [
+          "release"
+        ],
+        "schema": {
+          "type": "object",
+          "properties": {
+            "reference": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "reference"
+          ]
+        },
+        "states": [
+          "draft",
+          "verified"
+        ],
+        "relationships": []
+      },
+      {
+        "id": "documentation",
+        "description": "documentation",
+        "owner": "pm",
+        "producers": [
+          "pm"
+        ],
+        "consumers": [
+          "pm"
+        ],
+        "schema": {
+          "type": "object",
+          "properties": {
+            "reference": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "reference"
+          ]
+        },
+        "states": [
+          "draft",
+          "verified"
+        ],
+        "relationships": []
+      },
+      {
+        "id": "requirements",
+        "description": "requirements",
+        "owner": "pm",
+        "producers": [
+          "pm"
+        ],
+        "consumers": [
+          "pm"
+        ],
+        "schema": {
+          "type": "object",
+          "properties": {
+            "reference": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "reference"
+          ]
+        },
+        "states": [
+          "draft",
+          "verified"
+        ],
+        "relationships": []
+      },
+      {
+        "id": "product-direction",
+        "description": "Goals and prioritization decisions.",
+        "owner": "pm",
+        "producers": [
+          "pm"
+        ],
+        "consumers": [
+          "pm"
+        ],
+        "schema": {
+          "type": "object",
+          "properties": {
+            "reference": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "reference"
+          ],
+          "additionalProperties": false
+        },
+        "states": [
+          "draft",
+          "verified"
+        ],
+        "relationships": []
+      },
+      {
+        "id": "engineering-practices",
+        "description": "Project engineering conventions.",
+        "owner": "engineer",
+        "producers": [
+          "engineer"
+        ],
+        "consumers": [
+          "engineer"
+        ],
+        "schema": {
+          "type": "object",
+          "properties": {
+            "reference": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "reference"
+          ],
+          "additionalProperties": false
+        },
+        "states": [
+          "draft",
+          "verified"
+        ],
+        "relationships": []
+      },
+      {
+        "id": "metrics",
+        "description": "Product and delivery measurements.",
+        "owner": "pm",
+        "producers": [
+          "pm"
+        ],
+        "consumers": [
+          "pm"
+        ],
+        "schema": {
+          "type": "object",
+          "properties": {
+            "reference": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "reference"
+          ],
+          "additionalProperties": false
+        },
+        "states": [
+          "draft",
+          "verified"
+        ],
+        "relationships": []
+      }
+    ],
+    "initialization": {
+      "requiredArtifacts": [
+        "source-code"
+      ],
+      "recommendedArtifacts": [
+        "ci-cd",
+        "test-environment",
+        "live-environment",
+        "documentation",
+        "requirements",
+        "release-runbook",
+        "release-target"
+      ],
+      "workspace": {
+        "kind": "vm",
+        "provider": "lima",
+        "image": "https://cloud-images.ubuntu.com/releases/noble/release-20261017/ubuntu-24.04-server-cloudimg-arm64.img",
+        "imageDigest": "sha256:50e24e1fb79e89116e939d90aa7738f7af48c442fa1bc2510131e0b39c50348e",
+        "cpus": 2,
+        "memoryMb": 2048,
+        "diskGb": 10
+      }
+    },
+    "actions": [
+      {
+        "id": "clarify",
+        "role": "team-lead",
+        "inputTypes": [],
+        "outputTypes": [
+          "request-brief"
+        ],
+        "prerequisites": [],
+        "results": [
+          {
+            "status": "succeeded",
+            "requiredOutputTypes": [
+              "request-brief"
+            ],
+            "requiredEvidence": [
+              "result"
+            ]
+          },
+          {
+            "status": "needs-input",
+            "requiredOutputTypes": [],
+            "requiredEvidence": []
+          },
+          {
+            "status": "blocked",
+            "requiredOutputTypes": [],
+            "requiredEvidence": []
+          },
+          {
+            "status": "failed",
+            "requiredOutputTypes": [],
+            "requiredEvidence": []
+          }
+        ],
+        "retry": {
+          "maxAttempts": 3,
+          "delaySeconds": 5
+        },
+        "approvalRequired": false
+      },
+      {
+        "id": "discover",
+        "role": "pm",
+        "inputTypes": [
+          "request-brief"
+        ],
+        "outputTypes": [
+          "change-brief"
+        ],
+        "prerequisites": [],
+        "results": [
+          {
+            "status": "succeeded",
+            "requiredOutputTypes": [
+              "change-brief"
+            ],
+            "requiredEvidence": [
+              "result"
+            ]
+          },
+          {
+            "status": "needs-input",
+            "requiredOutputTypes": [],
+            "requiredEvidence": []
+          },
+          {
+            "status": "blocked",
+            "requiredOutputTypes": [],
+            "requiredEvidence": []
+          },
+          {
+            "status": "failed",
+            "requiredOutputTypes": [],
+            "requiredEvidence": []
+          }
+        ],
+        "retry": {
+          "maxAttempts": 3,
+          "delaySeconds": 5
+        },
+        "approvalRequired": false
+      },
+      {
+        "id": "implement",
+        "role": "engineer",
+        "inputTypes": [
+          "source-code",
+          "change-brief"
+        ],
+        "outputTypes": [
+          "candidate"
+        ],
+        "prerequisites": [],
+        "results": [
+          {
+            "status": "succeeded",
+            "requiredOutputTypes": [
+              "candidate"
+            ],
+            "requiredEvidence": [
+              "result"
+            ]
+          },
+          {
+            "status": "needs-input",
+            "requiredOutputTypes": [],
+            "requiredEvidence": []
+          },
+          {
+            "status": "blocked",
+            "requiredOutputTypes": [],
+            "requiredEvidence": []
+          },
+          {
+            "status": "failed",
+            "requiredOutputTypes": [],
+            "requiredEvidence": []
+          }
+        ],
+        "retry": {
+          "maxAttempts": 3,
+          "delaySeconds": 5
+        },
+        "approvalRequired": false
+      },
+      {
+        "id": "verify",
+        "role": "qa",
+        "inputTypes": [
+          "candidate",
+          "change-brief"
+        ],
+        "outputTypes": [
+          "test-plan",
+          "qa-evidence"
+        ],
+        "prerequisites": [],
+        "results": [
+          {
+            "status": "succeeded",
+            "requiredOutputTypes": [
+              "test-plan",
+              "qa-evidence"
+            ],
+            "requiredEvidence": [
+              "result"
+            ]
+          },
+          {
+            "status": "needs-input",
+            "requiredOutputTypes": [],
+            "requiredEvidence": []
+          },
+          {
+            "status": "blocked",
+            "requiredOutputTypes": [],
+            "requiredEvidence": []
+          },
+          {
+            "status": "failed",
+            "requiredOutputTypes": [],
+            "requiredEvidence": []
+          }
+        ],
+        "retry": {
+          "maxAttempts": 3,
+          "delaySeconds": 5
+        },
+        "approvalRequired": false
+      },
+      {
+        "id": "prepare-release",
+        "role": "release",
+        "inputTypes": [
+          "candidate",
+          "qa-evidence",
+          "release-runbook",
+          "release-target"
+        ],
+        "outputTypes": [],
+        "prerequisites": [],
+        "results": [
+          {
+            "status": "succeeded",
+            "requiredOutputTypes": [],
+            "requiredEvidence": [
+              "result"
+            ]
+          },
+          {
+            "status": "needs-input",
+            "requiredOutputTypes": [],
+            "requiredEvidence": []
+          },
+          {
+            "status": "blocked",
+            "requiredOutputTypes": [],
+            "requiredEvidence": []
+          },
+          {
+            "status": "failed",
+            "requiredOutputTypes": [],
+            "requiredEvidence": []
+          }
+        ],
+        "retry": {
+          "maxAttempts": 3,
+          "delaySeconds": 5
+        },
+        "approvalRequired": false
+      },
+      {
+        "id": "deploy",
+        "role": "release",
+        "inputTypes": [
+          "candidate",
+          "qa-evidence",
+          "release-runbook",
+          "release-target"
+        ],
+        "outputTypes": [
+          "deployment-evidence"
+        ],
+        "prerequisites": [],
+        "results": [
+          {
+            "status": "succeeded",
+            "requiredOutputTypes": [
+              "deployment-evidence"
+            ],
+            "requiredEvidence": [
+              "result"
+            ]
+          },
+          {
+            "status": "needs-input",
+            "requiredOutputTypes": [],
+            "requiredEvidence": []
+          },
+          {
+            "status": "blocked",
+            "requiredOutputTypes": [],
+            "requiredEvidence": []
+          },
+          {
+            "status": "failed",
+            "requiredOutputTypes": [],
+            "requiredEvidence": []
+          }
+        ],
+        "retry": {
+          "maxAttempts": 3,
+          "delaySeconds": 5
+        },
+        "approvalRequired": true
+      }
+    ],
+    "workflows": [
+      {
+        "id": "product-discovery",
+        "description": "Investigate a product question and return a recommendation or change brief.",
+        "outcomes": [
+          "adoption recommendation",
+          "product discovery",
+          "prioritize product"
+        ],
+        "startPhase": "clarify",
+        "terminalPhases": [
+          "done"
+        ],
+        "phases": [
+          {
+            "id": "clarify",
+            "action": "clarify"
+          },
+          {
+            "id": "discover",
+            "action": "discover"
+          },
+          {
+            "id": "done",
+            "terminal": true
+          }
+        ],
+        "transitions": [
+          {
+            "from": "clarify",
+            "to": "discover",
+            "when": {
+              "status": "succeeded"
+            }
+          },
+          {
+            "from": "discover",
+            "to": "done",
+            "when": {
+              "status": "succeeded"
+            }
+          }
+        ]
+      },
+      {
+        "id": "feature-development",
+        "description": "Clarify the requested feature, define scenarios, implement, verify and release when shipping is requested.",
+        "outcomes": [
+          "feature",
+          "build",
+          "implement",
+          "add",
+          "fix"
+        ],
+        "startPhase": "clarify",
+        "terminalPhases": [
+          "verified",
+          "released"
+        ],
+        "phases": [
+          {
+            "id": "clarify",
+            "action": "clarify"
+          },
+          {
+            "id": "discover",
+            "action": "discover"
+          },
+          {
+            "id": "implement",
+            "action": "implement"
+          },
+          {
+            "id": "verify",
+            "action": "verify"
+          },
+          {
+            "id": "prepare-release",
+            "action": "prepare-release"
+          },
+          {
+            "id": "deploy",
+            "action": "deploy"
+          },
+          {
+            "id": "verified",
+            "terminal": true
+          },
+          {
+            "id": "released",
+            "terminal": true
+          }
+        ],
+        "transitions": [
+          {
+            "from": "clarify",
+            "to": "discover",
+            "when": {
+              "status": "succeeded"
+            }
+          },
+          {
+            "from": "discover",
+            "to": "implement",
+            "when": {
+              "status": "succeeded"
+            }
+          },
+          {
+            "from": "implement",
+            "to": "verify",
+            "when": {
+              "status": "succeeded"
+            }
+          },
+          {
+            "from": "verify",
+            "to": "implement",
+            "when": {
+              "status": "succeeded",
+              "recordType": "qa-evidence",
+              "field": "verdict",
+              "equals": "failed"
+            }
+          },
+          {
+            "from": "verify",
+            "to": "verify",
+            "when": {
+              "status": "succeeded",
+              "recordType": "qa-evidence",
+              "field": "verdict",
+              "equals": "pending",
+              "decision": "retry-qa"
+            }
+          },
+          {
+            "from": "verify",
+            "to": "verified",
+            "when": {
+              "status": "succeeded",
+              "recordType": "qa-evidence",
+              "field": "verdict",
+              "equals": "passed",
+              "decision": "verify-only"
+            }
+          },
+          {
+            "from": "verify",
+            "to": "prepare-release",
+            "when": {
+              "status": "succeeded",
+              "recordType": "qa-evidence",
+              "field": "verdict",
+              "equals": "passed",
+              "decision": "ship"
+            }
+          },
+          {
+            "from": "prepare-release",
+            "to": "deploy",
+            "when": {
+              "status": "succeeded"
+            }
+          },
+          {
+            "from": "deploy",
+            "to": "released",
+            "when": {
+              "status": "succeeded"
+            }
+          }
+        ]
+      }
+    ],
+    "views": [
+      {
+        "id": "team-lead-view",
+        "role": "team-lead",
+        "recordTypes": [
+          "request-brief"
+        ],
+        "summaryFields": [
+          "objective"
+        ],
+        "detailFields": [
+          "objective"
+        ],
+        "renderer": "record-card"
+      },
+      {
+        "id": "pm-view",
+        "role": "pm",
+        "recordTypes": [
+          "change-brief",
+          "documentation",
+          "requirements",
+          "product-direction",
+          "metrics"
+        ],
+        "summaryFields": [
+          "scope"
+        ],
+        "detailFields": [
+          "scenarios"
+        ],
+        "renderer": "record-card"
+      },
+      {
+        "id": "engineer-view",
+        "role": "engineer",
+        "recordTypes": [
+          "source-code",
+          "candidate",
+          "ci-cd"
+        ],
+        "summaryFields": [
+          "revision"
+        ],
+        "detailFields": [
+          "sourceRevision",
+          "briefRevision"
+        ],
+        "renderer": "record-card"
+      },
+      {
+        "id": "qa-view",
+        "role": "qa",
+        "recordTypes": [
+          "test-plan",
+          "qa-evidence",
+          "test-environment"
+        ],
+        "summaryFields": [
+          "candidateRevision",
+          "verdict",
+          "passPercentage"
+        ],
+        "detailFields": [
+          "environment",
+          "results",
+          "scenarios"
+        ],
+        "renderer": "record-card"
+      },
+      {
+        "id": "release-view",
+        "role": "release",
+        "recordTypes": [
+          "candidate",
+          "qa-evidence",
+          "release-runbook",
+          "release-target",
+          "deployment-evidence",
+          "live-environment"
+        ],
+        "summaryFields": [
+          "revision",
+          "candidateRevision",
+          "target",
+          "url",
+          "verdict",
+          "passPercentage",
+          "verified"
+        ],
+        "detailFields": [
+          "receipt",
+          "procedure",
+          "results"
+        ],
+        "renderer": "record-card"
+      }
+    ]
+  }
+}

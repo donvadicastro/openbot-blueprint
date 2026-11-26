@@ -1,0 +1,175 @@
+[
+  {
+    "id": "product-discovery",
+    "description": "Investigate a product question and return a recommendation or change brief.",
+    "outcomes": [
+      "adoption recommendation",
+      "product discovery",
+      "prioritize product"
+    ],
+    "startPhase": "clarify",
+    "terminalPhases": [
+      "done"
+    ],
+    "phases": [
+      {
+        "id": "clarify",
+        "action": "clarify"
+      },
+      {
+        "id": "discover",
+        "action": "discover"
+      },
+      {
+        "id": "done",
+        "terminal": true
+      }
+    ],
+    "transitions": [
+      {
+        "from": "clarify",
+        "to": "discover",
+        "when": {
+          "status": "succeeded"
+        }
+      },
+      {
+        "from": "discover",
+        "to": "done",
+        "when": {
+          "status": "succeeded"
+        }
+      }
+    ]
+  },
+  {
+    "id": "feature-development",
+    "description": "Clarify the requested feature, define scenarios, implement, verify and release when shipping is requested.",
+    "outcomes": [
+      "feature",
+      "build",
+      "implement",
+      "add",
+      "fix"
+    ],
+    "startPhase": "clarify",
+    "terminalPhases": [
+      "verified",
+      "released"
+    ],
+    "phases": [
+      {
+        "id": "clarify",
+        "action": "clarify"
+      },
+      {
+        "id": "discover",
+        "action": "discover"
+      },
+      {
+        "id": "implement",
+        "action": "implement"
+      },
+      {
+        "id": "verify",
+        "action": "verify"
+      },
+      {
+        "id": "prepare-release",
+        "action": "prepare-release"
+      },
+      {
+        "id": "deploy",
+        "action": "deploy"
+      },
+      {
+        "id": "verified",
+        "terminal": true
+      },
+      {
+        "id": "released",
+        "terminal": true
+      }
+    ],
+    "transitions": [
+      {
+        "from": "clarify",
+        "to": "discover",
+        "when": {
+          "status": "succeeded"
+        }
+      },
+      {
+        "from": "discover",
+        "to": "implement",
+        "when": {
+          "status": "succeeded"
+        }
+      },
+      {
+        "from": "implement",
+        "to": "verify",
+        "when": {
+          "status": "succeeded"
+        }
+      },
+      {
+        "from": "verify",
+        "to": "implement",
+        "when": {
+          "status": "succeeded",
+          "recordType": "qa-evidence",
+          "field": "verdict",
+          "equals": "failed"
+        }
+      },
+      {
+        "from": "verify",
+        "to": "verify",
+        "when": {
+          "status": "succeeded",
+          "recordType": "qa-evidence",
+          "field": "verdict",
+          "equals": "pending",
+          "decision": "retry-qa"
+        }
+      },
+      {
+        "from": "verify",
+        "to": "verified",
+        "when": {
+          "status": "succeeded",
+          "recordType": "qa-evidence",
+          "field": "verdict",
+          "equals": "passed",
+          "decision": "verify-only"
+        }
+      },
+      {
+        "from": "verify",
+        "to": "prepare-release",
+        "when": {
+          "status": "succeeded",
+          "recordType": "qa-evidence",
+          "field": "verdict",
+          "equals": "passed",
+          "decision": "ship"
+        }
+      },
+      {
+        "from": "prepare-release",
+        "to": "deploy",
+        "when": {
+          "status": "succeeded"
+        }
+      },
+      {
+        "from": "deploy",
+        "to": "released",
+        "when": {
+          "status": "succeeded"
+        }
+      }
+    ]
+  }
+]

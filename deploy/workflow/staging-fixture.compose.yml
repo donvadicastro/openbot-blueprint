@@ -1,0 +1,26 @@
+# Disposable pilot target only: it records an idempotent fixture effect, not a real deployment.
+services:
+  staging-fixture:
+    image: openbot-blueprint-staging-fixture:local
+    build:
+      context: .
+      dockerfile: deploy/workflow/staging-fixture.Dockerfile
+    environment:
+      STAGING_TARGET_TOKEN: ${STAGING_TARGET_TOKEN:?Set STAGING_TARGET_TOKEN}
+      STAGING_DROP_FIRST_RECEIPT: ${STAGING_DROP_FIRST_RECEIPT:-false}
+    volumes:
+      - staging-fixture-data:/data
+    networks: [workflow]
+    restart: unless-stopped
+
+  server:
+    environment:
+      STAGING_TARGET_URL: http://staging-fixture:4520
+      STAGING_TARGET_TOKEN: ${STAGING_TARGET_TOKEN:?Set STAGING_TARGET_TOKEN}
+      STAGING_TARGET_ID: ${STAGING_TARGET_ID:?Set STAGING_TARGET_ID}
+    depends_on:
+      staging-fixture:
+        condition: service_started
+
+volumes:
+  staging-fixture-data:
